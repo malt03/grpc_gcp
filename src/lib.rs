@@ -1,5 +1,7 @@
 pub mod firestore;
 mod proto;
+#[macro_use]
+mod singleton;
 
 pub async fn hoge() {
     // tonic::Request::new(message)
