@@ -28,8 +28,10 @@ impl ConnectionPool {
 
     async fn borrow_client(&mut self) -> Result<Client, Box<dyn std::error::Error>> {
         if let Some(client) = self.clients.pop() {
+            println!("reuse client");
             return Ok(client);
         }
+        println!("create client");
         let token = self.get_token().await?;
         let bearer = format!("Bearer {}", token.as_str());
         let header_value = tonic::metadata::MetadataValue::from_str(&bearer)?;
@@ -52,21 +54,22 @@ impl ConnectionPool {
     }
 }
 
-pub async fn get_document(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn get_document(path: impl Into<String>) -> Result<(), Box<dyn std::error::Error>> {
     let pool = ConnectionPool::shared();
 
     let mut client = pool.lock().unwrap().borrow_client().await?;
 
     let request = tonic::Request::new(GetDocumentRequest {
         name: format!(
-            "projects/projectmap-develop/databases/(default)/documents/{}",
-            path
+            "projects/{}/databases/(default)/documents/{}",
+            crate::Config::shared().lock().unwrap().get_project_id(),
+            path.into()
         )
         .to_string(),
         ..Default::default()
     });
     let response = client.get_document(request).await?;
-    println!("{:?}", response.get_ref());
+    println!("{:?}", response.get_ref().fields);
 
     pool.lock().unwrap().return_client(client);
     Ok(())
