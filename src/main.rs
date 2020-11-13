@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    grpc_gcp::initialize("projectmap-develop");
+    grpc_gcp::initialize("babyfood");
 
     loop {
         let stdin = io::stdin();
