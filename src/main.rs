@@ -2,7 +2,7 @@ use grpc_gcp;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    grpc_gcp::initialize("babyfood");
+    grpc_gcp::initialize("projectmap-develop");
 
     let paths = vec![
         "/AllChatRoomUnreads/ExBBU90TPTR5DBg1Og0UFu4eCeZ2",
@@ -26,28 +26,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-// fn main() {
-//     let vec = vec![1, 2, 3, 4, 5];
-
-//     let mut rng = rand::thread_rng();
-//     let mut handles = Vec::new();
-
-//     for value in vec {
-//         let wait: u64 = rng.gen_range(100, 200);
-//         let handle = std::thread::spawn(move || {
-//             std::thread::sleep(std::time::Duration::from_millis(wait));
-//             println!("{}", value);
-//             value * 2
-//         });
-//         handles.push(handle);
-//     }
-
-//     std::thread::sleep(std::time::Duration::from_secs(5));
-
-//     let results: Vec<_> = handles
-//         .into_iter()
-//         .map(|handle| handle.join().unwrap())
-//         .collect();
-//     println!("{:?}", results);
-// }

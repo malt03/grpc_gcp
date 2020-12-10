@@ -1,4 +1,5 @@
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
+use tokio::sync::Mutex;
 
 use crate::proto::google::firestore::v1::{
     firestore_client::FirestoreClient, Document, GetDocumentRequest,
@@ -10,7 +11,9 @@ const DOMAIN: &str = "firestore.googleapis.com";
 type Client = FirestoreClient<tonic::transport::Channel>;
 
 static CHANNEL: OnceCell<tonic::transport::Channel> = OnceCell::new();
+static CHANNEL_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 static AUTHENTICATION_MANAGER: OnceCell<gcp_auth::AuthenticationManager> = OnceCell::new();
+static AUTHENTICATION_MANAGER_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
 async fn get_token() -> Result<gcp_auth::Token, Box<dyn std::error::Error>> {
     let authentication_manager = get_authentication_manager().await?;
@@ -31,29 +34,31 @@ async fn create_channel() -> Result<tonic::transport::Channel, Box<dyn std::erro
 
 async fn get_authentication_manager(
 ) -> Result<&'static gcp_auth::AuthenticationManager, Box<dyn std::error::Error>> {
-    let manager = match AUTHENTICATION_MANAGER.get() {
-        Some(manager) => manager,
-        None => {
-            let manager = gcp_auth::init().await?;
-            if AUTHENTICATION_MANAGER.set(manager).is_err() {
-                panic!("unexpected");
-            }
-            AUTHENTICATION_MANAGER.get().unwrap()
+    if let Some(manager) = AUTHENTICATION_MANAGER.get() {
+        return Ok(manager);
+    }
+    let mut initialized = AUTHENTICATION_MANAGER_INITIALIZED.lock().await;
+    if !*initialized {
+        let manager = gcp_auth::init().await?;
+        if AUTHENTICATION_MANAGER.set(manager).is_err() {
+            panic!("unexpected");
         }
-    };
-    Ok(manager)
+        *initialized = true;
+    }
+    return Ok(AUTHENTICATION_MANAGER.get().unwrap());
 }
 
 async fn get_channel() -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
-    let channel = match CHANNEL.get() {
-        Some(channel) => channel,
-        None => {
-            let channel = create_channel().await?;
-            CHANNEL.set(channel).unwrap();
-            CHANNEL.get().unwrap()
-        }
-    };
-    Ok(channel.clone())
+    if let Some(channel) = CHANNEL.get() {
+        return Ok(channel.clone());
+    }
+    let mut initialized = CHANNEL_INITIALIZED.lock().await;
+    if !*initialized {
+        let channel = create_channel().await?;
+        CHANNEL.set(channel).unwrap();
+        *initialized = true;
+    }
+    return Ok(CHANNEL.get().unwrap().clone());
 }
 
 async fn get_client() -> Result<Client, Box<dyn std::error::Error>> {
