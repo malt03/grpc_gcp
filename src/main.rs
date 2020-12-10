@@ -3,11 +3,11 @@ use std::io::{self, BufRead};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    grpc_gcp::initialize("projectmap-develop");
+    grpc_gcp::initialize("babyfood");
 
     let paths = vec![
-        "/AllChatRoomUnreads/ExBBU90TPTR5DBg1Og0UFu4eCeZ2",
-        "/Areas/0055a16bd49468b6df2cb8ea384c23ff",
+        "/families/04vT4jWP1GhmqdAlfaD1",
+        "/familyExpires/0965H9XdH66Vcs6W7c2X",
     ];
 
     loop {
