@@ -14,7 +14,7 @@ type Client = FirestoreClient<tonic::transport::Channel>;
 
 static CHANNEL: Lazy<InitOnce<tonic::transport::Channel>> = Lazy::new(|| InitOnce::new());
 
-pub(crate) async fn init() -> Result<(), tonic::transport::Error> {
+pub(crate) async fn init() -> Result<(), Box<dyn std::error::Error>> {
     CHANNEL.init(create_channel).await?;
     Ok(())
 }
