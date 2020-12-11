@@ -1,10 +1,10 @@
 use once_cell::sync::Lazy;
 
 use crate::{
-    init_once::InitOnce,
     proto::google::firestore::v1::{
         firestore_client::FirestoreClient, Document, GetDocumentRequest,
     },
+    util::init_once::InitOnce,
 };
 
 const URL: &str = "https://firestore.googleapis.com";

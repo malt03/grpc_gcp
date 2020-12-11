@@ -2,11 +2,11 @@ use once_cell::sync::OnceCell;
 
 static CONFIG: OnceCell<Config> = OnceCell::new();
 
-pub fn init(project_id: impl Into<String>) {
+pub(crate) fn init(project_id: impl Into<String>) {
     CONFIG.set(Config::new(project_id)).unwrap();
 }
 
-pub fn project_id() -> &'static String {
+pub(crate) fn project_id() -> &'static String {
     match CONFIG.get() {
         None => panic!("need to set project_id with grpc_gcp::init"),
         Some(config) => &config.project_id,

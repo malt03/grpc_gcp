@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     for _ in stdin.lock().lines() {
     let mut all = Vec::new();
     for path in paths.clone() {
-        let future = grpc_gcp::firestore::v1::get_document(path);
+        let future = grpc_gcp::firestore::get_document(path);
         all.push(future);
     }
 

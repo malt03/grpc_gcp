@@ -1,4 +1,4 @@
-use crate::init_once::InitOnce;
+use crate::util::init_once::InitOnce;
 use once_cell::sync::Lazy;
 
 pub(crate) static AUTHENTICATION_MANAGER: Lazy<InitOnce<gcp_auth::AuthenticationManager>> =
