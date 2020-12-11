@@ -1,6 +1,8 @@
+#[macro_use]
+mod service;
+
 mod config;
 mod proto;
-mod service;
 mod util;
 
 pub use service::google::{firestore, pubsub};
