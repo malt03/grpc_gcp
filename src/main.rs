@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    grpc_gcp::initialize("babyfood");
+    grpc_gcp::init("babyfood");
 
     let paths = vec![
         "/families/04vT4jWP1GhmqdAlfaD1",

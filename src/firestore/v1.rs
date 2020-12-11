@@ -12,11 +12,9 @@ type Client = FirestoreClient<tonic::transport::Channel>;
 
 static CHANNEL: OnceCell<tonic::transport::Channel> = OnceCell::new();
 static CHANNEL_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
-static AUTHENTICATION_MANAGER: OnceCell<gcp_auth::AuthenticationManager> = OnceCell::new();
-static AUTHENTICATION_MANAGER_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
 async fn get_token() -> Result<gcp_auth::Token, Box<dyn std::error::Error>> {
-    let authentication_manager = get_authentication_manager().await?;
+    let authentication_manager = crate::auth::get_authentication_manager().await?;
     let token = authentication_manager
         .get_token(&["https://www.googleapis.com/auth/datastore"])
         .await?;
@@ -30,22 +28,6 @@ async fn create_channel() -> Result<tonic::transport::Channel, Box<dyn std::erro
         .connect()
         .await?;
     Ok(channel)
-}
-
-async fn get_authentication_manager(
-) -> Result<&'static gcp_auth::AuthenticationManager, Box<dyn std::error::Error>> {
-    if let Some(manager) = AUTHENTICATION_MANAGER.get() {
-        return Ok(manager);
-    }
-    let mut initialized = AUTHENTICATION_MANAGER_INITIALIZED.lock().await;
-    if !*initialized {
-        let manager = gcp_auth::init().await?;
-        if AUTHENTICATION_MANAGER.set(manager).is_err() {
-            panic!("unexpected");
-        }
-        *initialized = true;
-    }
-    return Ok(AUTHENTICATION_MANAGER.get().unwrap());
 }
 
 async fn get_channel() -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
@@ -83,7 +65,7 @@ pub async fn get_document(
     let request = tonic::Request::new(GetDocumentRequest {
         name: format!(
             "projects/{}/databases/(default)/documents{}",
-            crate::Config::shared().lock().unwrap().get_project_id(),
+            crate::config::project_id(),
             path.into()
         )
         .to_string(),
