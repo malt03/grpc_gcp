@@ -386,6 +386,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "gcp_auth",
+ "http",
  "once_cell",
  "prost",
  "prost-types",

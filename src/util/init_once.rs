@@ -15,9 +15,13 @@ impl<T> InitOnce<T> {
         }
     }
 
-    pub(crate) async fn init<E: std::error::Error, Fut: Future<Output = Result<T, E>>>(
+    pub(crate) async fn init<
+        E: std::error::Error,
+        Fut: Future<Output = Result<T, E>>,
+        F: Fn() -> Fut,
+    >(
         &self,
-        f: fn() -> Fut,
+        f: F,
     ) -> Result<(), E> {
         if self.value.get().is_some() {
             return Ok(());

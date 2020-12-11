@@ -1,7 +1,8 @@
-pub mod firestore;
-pub mod rpc {
+pub(crate) mod firestore;
+pub(crate) mod pubsub;
+pub(crate) mod rpc {
     tonic::include_proto!("google.rpc");
 }
-pub mod r#type {
+pub(crate) mod r#type {
     tonic::include_proto!("google.r#type");
 }
