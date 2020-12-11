@@ -1,8 +1,10 @@
-use once_cell::sync::{Lazy, OnceCell};
-use tokio::sync::Mutex;
+use once_cell::sync::Lazy;
 
-use crate::proto::google::firestore::v1::{
-    firestore_client::FirestoreClient, Document, GetDocumentRequest,
+use crate::{
+    init_once::InitOnce,
+    proto::google::firestore::v1::{
+        firestore_client::FirestoreClient, Document, GetDocumentRequest,
+    },
 };
 
 const URL: &str = "https://firestore.googleapis.com";
@@ -10,18 +12,14 @@ const DOMAIN: &str = "firestore.googleapis.com";
 
 type Client = FirestoreClient<tonic::transport::Channel>;
 
-static CHANNEL: OnceCell<tonic::transport::Channel> = OnceCell::new();
-static CHANNEL_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static CHANNEL: Lazy<InitOnce<tonic::transport::Channel>> = Lazy::new(|| InitOnce::new());
 
-async fn get_token() -> Result<gcp_auth::Token, Box<dyn std::error::Error>> {
-    let authentication_manager = crate::auth::get_authentication_manager().await?;
-    let token = authentication_manager
-        .get_token(&["https://www.googleapis.com/auth/datastore"])
-        .await?;
-    Ok(token)
+pub(crate) async fn init() -> Result<(), tonic::transport::Error> {
+    CHANNEL.init(create_channel).await?;
+    Ok(())
 }
 
-async fn create_channel() -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
+async fn create_channel() -> Result<tonic::transport::Channel, tonic::transport::Error> {
     let tls = tonic::transport::ClientTlsConfig::new().domain_name(DOMAIN);
     let channel = tonic::transport::Channel::from_static(URL)
         .tls_config(tls)?
@@ -30,21 +28,16 @@ async fn create_channel() -> Result<tonic::transport::Channel, Box<dyn std::erro
     Ok(channel)
 }
 
-async fn get_channel() -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
-    if let Some(channel) = CHANNEL.get() {
-        return Ok(channel.clone());
-    }
-    let mut initialized = CHANNEL_INITIALIZED.lock().await;
-    if !*initialized {
-        let channel = create_channel().await?;
-        CHANNEL.set(channel).unwrap();
-        *initialized = true;
-    }
-    return Ok(CHANNEL.get().unwrap().clone());
+async fn get_token() -> Result<gcp_auth::Token, Box<dyn std::error::Error>> {
+    let authentication_manager = crate::auth::AUTHENTICATION_MANAGER.get().await;
+    let token = authentication_manager
+        .get_token(&["https://www.googleapis.com/auth/datastore"])
+        .await?;
+    Ok(token)
 }
 
 async fn get_client() -> Result<Client, Box<dyn std::error::Error>> {
-    let channel = get_channel().await?;
+    let channel = CHANNEL.get().await.clone();
     let token = get_token().await?;
 
     let bearer = format!("Bearer {}", token.as_str());

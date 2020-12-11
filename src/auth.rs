@@ -1,21 +1,10 @@
-use once_cell::sync::{Lazy, OnceCell};
-use tokio::sync::Mutex;
+use crate::init_once::InitOnce;
+use once_cell::sync::Lazy;
 
-static AUTHENTICATION_MANAGER: OnceCell<gcp_auth::AuthenticationManager> = OnceCell::new();
-static AUTHENTICATION_MANAGER_INITIALIZED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+pub(crate) static AUTHENTICATION_MANAGER: Lazy<InitOnce<gcp_auth::AuthenticationManager>> =
+    Lazy::new(|| InitOnce::new());
 
-pub(crate) async fn get_authentication_manager(
-) -> Result<&'static gcp_auth::AuthenticationManager, Box<dyn std::error::Error>> {
-    if let Some(manager) = AUTHENTICATION_MANAGER.get() {
-        return Ok(manager);
-    }
-    let mut initialized = AUTHENTICATION_MANAGER_INITIALIZED.lock().await;
-    if !*initialized {
-        let manager = gcp_auth::init().await?;
-        if AUTHENTICATION_MANAGER.set(manager).is_err() {
-            panic!("unexpected");
-        }
-        *initialized = true;
-    }
-    return Ok(AUTHENTICATION_MANAGER.get().unwrap());
+pub(crate) async fn init() -> Result<(), gcp_auth::GCPAuthError> {
+    AUTHENTICATION_MANAGER.init(gcp_auth::init).await?;
+    Ok(())
 }
