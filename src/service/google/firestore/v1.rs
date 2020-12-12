@@ -1,3 +1,4 @@
+use crate::config::project_id;
 use crate::proto::google::firestore::v1::{
     firestore_client::FirestoreClient, Document, GetDocumentRequest,
 };
@@ -14,7 +15,7 @@ pub async fn get_document(
     let request = tonic::Request::new(GetDocumentRequest {
         name: format!(
             "projects/{}/databases/(default)/documents{}",
-            crate::config::project_id(),
+            project_id(),
             path.into()
         )
         .to_string(),

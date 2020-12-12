@@ -1,7 +1,7 @@
 macro_rules! define_client {
     ($($type: tt),*) => {
-        static CHANNEL: once_cell::sync::Lazy<crate::util::init_once::InitOnce<tonic::transport::Channel>,
-        > = once_cell::sync::Lazy::new(|| crate::util::init_once::InitOnce::new());
+        type ChannelHolder = once_cell::sync::Lazy<crate::util::init_once::InitOnce<tonic::transport::Channel>>;
+        static CHANNEL: ChannelHolder = once_cell::sync::Lazy::new(|| crate::util::init_once::InitOnce::new());
 
         pub(crate) async fn init() -> Result<(), Box<dyn std::error::Error>> {
             CHANNEL
