@@ -1,10 +1,16 @@
-use crate::util::init_once::InitOnce;
+use crate::util::init_once::{AsyncCreator, InitOnce};
+use async_trait::async_trait;
+use gcp_auth::AuthenticationManager;
 use once_cell::sync::Lazy;
 
-pub(crate) static AUTHENTICATION_MANAGER: Lazy<InitOnce<gcp_auth::AuthenticationManager>> =
-    Lazy::new(|| InitOnce::new());
-
-pub(crate) async fn init() -> Result<(), Box<dyn std::error::Error>> {
-    AUTHENTICATION_MANAGER.init(gcp_auth::init).await?;
-    Ok(())
+pub(crate) struct AuthenticationManagerCreator {}
+#[async_trait]
+impl AsyncCreator<AuthenticationManager> for AuthenticationManagerCreator {
+    async fn create(&self) -> Result<AuthenticationManager, Box<dyn std::error::Error>> {
+        Ok(gcp_auth::init().await?)
+    }
 }
+
+pub(crate) static AUTHENTICATION_MANAGER: Lazy<
+    InitOnce<AuthenticationManager, AuthenticationManagerCreator>,
+> = Lazy::new(|| InitOnce::new(AuthenticationManagerCreator {}));

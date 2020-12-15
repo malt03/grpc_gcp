@@ -1,49 +1,39 @@
+use async_trait::async_trait;
 use once_cell::sync::OnceCell;
-use std::future::Future;
 use tokio::sync::Mutex;
 
-pub(crate) struct InitOnce<T> {
+pub(crate) struct InitOnce<T, AsyncCreatorType: AsyncCreator<T>> {
     initialized: Mutex<bool>,
     value: OnceCell<T>,
+    creator: AsyncCreatorType,
 }
 
-impl<T> InitOnce<T> {
-    pub(crate) fn new() -> Self {
+#[async_trait]
+pub(crate) trait AsyncCreator<T> {
+    async fn create(&self) -> Result<T, Box<dyn std::error::Error>>;
+}
+
+impl<T, AsyncCreatorType: AsyncCreator<T>> InitOnce<T, AsyncCreatorType> {
+    pub(crate) fn new(creator: AsyncCreatorType) -> Self {
         InitOnce {
             initialized: Mutex::new(false),
             value: OnceCell::new(),
+            creator: creator,
         }
     }
 
-    pub(crate) async fn init<
-        E: std::error::Error,
-        Fut: Future<Output = Result<T, E>>,
-        F: Fn() -> Fut,
-    >(
-        &self,
-        f: F,
-    ) -> Result<(), E> {
-        if self.value.get().is_some() {
-            return Ok(());
+    pub(crate) async fn get<'s>(&'s self) -> Result<&'s T, Box<dyn std::error::Error>> {
+        if let Some(value) = self.value.get() {
+            return Ok(value);
         }
-        let initialized = self.initialized.lock().await;
+        let mut initialized = self.initialized.lock().await;
         if !*initialized {
-            let value = f().await?;
+            let value = self.creator.create().await?;
             if self.value.set(value).is_err() {
                 panic!("unexpected");
             }
+            *initialized = true;
         }
-        Ok(())
-    }
-
-    pub(crate) async fn get<'s>(&'s self) -> &'s T {
-        if let Some(value) = self.value.get() {
-            return value;
-        }
-        let initialized = self.initialized.lock().await;
-        if !*initialized {
-            panic!("call init before get.");
-        }
-        self.value.get().unwrap()
+        Ok(self.value.get().unwrap())
     }
 }

@@ -1,22 +1,23 @@
 macro_rules! define_client {
     ($($type: tt),*) => {
-        type ChannelHolder = once_cell::sync::Lazy<crate::util::init_once::InitOnce<tonic::transport::Channel>>;
-        static CHANNEL: ChannelHolder = once_cell::sync::Lazy::new(|| crate::util::init_once::InitOnce::new());
-
-        pub(crate) async fn init() -> Result<(), Box<dyn std::error::Error>> {
-            CHANNEL
-            .init(|| async {
+        struct ChannelCreator {}
+        #[async_trait::async_trait]
+        impl crate::util::init_once::AsyncCreator<tonic::transport::Channel> for ChannelCreator {
+            async fn create(&self) -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
                 Ok(crate::service::create_channel(DOMAIN).await?)
-                as Result<tonic::transport::Channel, tonic::transport::Error>
-            })
-            .await?;
-            Ok(())
+            }
         }
+
+        type ChannelHolder = once_cell::sync::Lazy<
+            crate::util::init_once::InitOnce<tonic::transport::Channel, ChannelCreator>,
+        >;
+        static CHANNEL: ChannelHolder =
+            once_cell::sync::Lazy::new(|| crate::util::init_once::InitOnce::new(ChannelCreator {}));
 
         $(
             impl $type<tonic::transport::Channel> {
                 async fn get() -> Result<Self, Box<dyn std::error::Error>> {
-                    let channel = CHANNEL.get().await.clone();
+                    let channel = CHANNEL.get().await?.clone();
                     let token = crate::service::get_token(&[SCOPE]).await?;
 
                     let bearer = format!("Bearer {}", token.as_str());
