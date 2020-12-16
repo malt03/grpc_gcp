@@ -2,23 +2,23 @@ use async_trait::async_trait;
 use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
 
-pub(crate) struct InitOnce<T, AsyncCreatorType: AsyncCreator<T>> {
+pub(crate) struct AsyncInitOnce<T, Initializer: AsyncInitializer<T>> {
     initialized: Mutex<bool>,
     value: OnceCell<T>,
-    creator: AsyncCreatorType,
+    initializer: Initializer,
 }
 
 #[async_trait]
-pub(crate) trait AsyncCreator<T> {
+pub(crate) trait AsyncInitializer<T> {
     async fn create(&self) -> Result<T, Box<dyn std::error::Error>>;
 }
 
-impl<T, AsyncCreatorType: AsyncCreator<T>> InitOnce<T, AsyncCreatorType> {
-    pub(crate) fn new(creator: AsyncCreatorType) -> Self {
-        InitOnce {
+impl<T, Initializer: AsyncInitializer<T>> AsyncInitOnce<T, Initializer> {
+    pub(crate) fn new(initializer: Initializer) -> Self {
+        AsyncInitOnce {
             initialized: Mutex::new(false),
             value: OnceCell::new(),
-            creator: creator,
+            initializer: initializer,
         }
     }
 
@@ -28,7 +28,7 @@ impl<T, AsyncCreatorType: AsyncCreator<T>> InitOnce<T, AsyncCreatorType> {
         }
         let mut initialized = self.initialized.lock().await;
         if !*initialized {
-            let value = self.creator.create().await?;
+            let value = self.initializer.create().await?;
             if self.value.set(value).is_err() {
                 panic!("unexpected");
             }

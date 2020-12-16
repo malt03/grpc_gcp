@@ -1,18 +1,18 @@
 macro_rules! define_client {
     ($($type: tt),*) => {
-        struct ChannelCreator {}
+        struct ChannelInitializer {}
         #[async_trait::async_trait]
-        impl crate::util::init_once::AsyncCreator<tonic::transport::Channel> for ChannelCreator {
+        impl crate::util::init_once::AsyncInitializer<tonic::transport::Channel> for ChannelInitializer {
             async fn create(&self) -> Result<tonic::transport::Channel, Box<dyn std::error::Error>> {
                 Ok(crate::service::create_channel(DOMAIN).await?)
             }
         }
 
         type ChannelHolder = once_cell::sync::Lazy<
-            crate::util::init_once::InitOnce<tonic::transport::Channel, ChannelCreator>,
+            crate::util::init_once::AsyncInitOnce<tonic::transport::Channel, ChannelInitializer>,
         >;
         static CHANNEL: ChannelHolder =
-            once_cell::sync::Lazy::new(|| crate::util::init_once::InitOnce::new(ChannelCreator {}));
+            once_cell::sync::Lazy::new(|| crate::util::init_once::AsyncInitOnce::new(ChannelInitializer {}));
 
         $(
             impl $type<tonic::transport::Channel> {
