@@ -1,23 +1,27 @@
 mod error;
 
-use crate::{
-    firestore,
-    proto::google::firestore::v1::{value::ValueType, Value},
-};
+use crate::proto::google::firestore::v1::{value::ValueType, Value};
 pub use error::{Error, Result};
-use serde::de::{
-    self, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess,
-    Visitor,
-};
+use serde::de::{self, DeserializeSeed, MapAccess, Visitor};
 use serde::Deserialize;
 use std::{
     collections::{hash_map::Iter, HashMap},
     convert::TryFrom,
-    ops::{AddAssign, MulAssign, Neg},
+    iter::Peekable,
 };
 
+impl ValueType {
+    fn is_some_value(&self) -> bool {
+        if let ValueType::NullValue(_) = self {
+            false
+        } else {
+            true
+        }
+    }
+}
+
 pub struct Deserializer<'de> {
-    entries: Iter<'de, String, Value>,
+    entries: Peekable<Iter<'de, String, Value>>,
     poped_value: Option<&'de Value>,
 }
 
@@ -28,7 +32,7 @@ impl<'de> Deserializer<'de> {
     // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
     pub fn from_fields(input: &'de HashMap<String, Value>) -> Self {
         Deserializer {
-            entries: input.iter(),
+            entries: input.iter().peekable(),
             poped_value: None,
         }
     }
@@ -49,22 +53,40 @@ enum FieldElement<'de> {
 
 impl<'de> Deserializer<'de> {
     fn pop(&mut self) -> Result<FieldElement> {
-        if let Some(value) = self.poped_value {
-            self.poped_value = None;
-            return Ok(FieldElement::Value(value));
-        }
-        match self.entries.next() {
-            None => Err(Error::Eof),
-            Some(entriy) => {
-                self.poped_value = Some(entriy.1);
-                Ok(FieldElement::Key(entriy.0))
+        match self.poped_value {
+            Some(value) => {
+                self.poped_value = None;
+                Ok(FieldElement::Value(value))
             }
+            None => match self.entries.next() {
+                None => Err(Error::Eof),
+                Some(entriy) => {
+                    self.poped_value = Some(entriy.1);
+                    Ok(FieldElement::Key(entriy.0))
+                }
+            },
+        }
+    }
+
+    fn peek(&mut self) -> Result<FieldElement> {
+        match self.poped_value {
+            Some(value) => Ok(FieldElement::Value(value)),
+            None => match self.entries.peek() {
+                None => Err(Error::Eof),
+                Some(entriy) => {
+                    self.poped_value = Some(entriy.1);
+                    Ok(FieldElement::Key(entriy.0))
+                }
+            },
         }
     }
 
     fn get_bool(&mut self) -> Result<bool> {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedBoolean),
+            FieldElement::Key(key) => {
+                println!("bool {}", key);
+                return Err(Error::UnexpectedKey);
+            }
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::BooleanValue(value) = value_type {
@@ -95,7 +117,10 @@ impl<'de> Deserializer<'de> {
         T: TryFrom<u64>,
     {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedInteger),
+            FieldElement::Key(key) => {
+                println!("unsigned {}", key);
+                return Err(Error::UnexpectedKey);
+            }
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::IntegerValue(value) = value_type {
@@ -116,7 +141,10 @@ impl<'de> Deserializer<'de> {
         T: TryFrom<i64>,
     {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedInteger),
+            FieldElement::Key(key) => {
+                println!("signed {}", key);
+                return Err(Error::UnexpectedKey);
+            }
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::IntegerValue(value) = value_type {
@@ -130,7 +158,10 @@ impl<'de> Deserializer<'de> {
 
     fn get_f64(&mut self) -> Result<f64> {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedInteger),
+            FieldElement::Key(key) => {
+                println!("f64 {}", key);
+                return Err(Error::UnexpectedKey);
+            }
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::DoubleValue(value) = value_type {
@@ -172,7 +203,10 @@ impl<'de> Deserializer<'de> {
 
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedBytes),
+            FieldElement::Key(key) => {
+                println!("bytes {}", key);
+                return Err(Error::UnexpectedKey);
+            }
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     return match value_type {
@@ -380,8 +414,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let str = self.get_string()?;
-        visitor.visit_str(&str)
+        visitor.visit_str(&self.get_string()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
@@ -405,29 +438,31 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_bytes(visitor)
     }
 
-    // An absent optional is represented as the JSON `null` and a present
-    // optional is represented as just the contained value.
-    //
-    // As commented in `Serializer` implementation, this is a lossy
-    // representation. For example the values `Some(())` and `None` both
-    // serialize as just `null`. Unfortunately this is typically what people
-    // expect when working with JSON. Other formats are encouraged to behave
-    // more intelligently if possible.
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
-        // if self.input.starts_with("null") {
-        //     self.input = &self.input["null".len()..];
-        //     visitor.visit_none()
-        // } else {
-        //     visitor.visit_some(self)
-        // }
+        {
+            match self.peek()? {
+                FieldElement::Key(_) => {
+                    return Err(Error::UnexpectedKey);
+                }
+                FieldElement::Value(value) => {
+                    if let Some(ref value_type) = value.value_type {
+                        if value_type.is_some_value() {
+                            return visitor.visit_some(self);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.pop().unwrap();
+        visitor.visit_none()
     }
 
     // In Serde, unit means an anonymous value containing no data.
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -461,7 +496,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     // Deserialization of compound types like sequences and maps happens by
     // passing the visitor an "Access" object that gives it the ability to
     // iterate through the data contained in the sequence.
-    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value>
+    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -552,7 +587,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self,
         _name: &'static str,
         _variants: &'static [&'static str],
-        visitor: V,
+        _visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -681,12 +716,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
 struct Entries<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
-    first: bool,
 }
 
 impl<'a, 'de> Entries<'a, 'de> {
     fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Entries { de, first: true }
+        Entries { de }
     }
 }
 
@@ -805,6 +839,9 @@ fn test_fields() {
         c: char,
         #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
+        option_some: Option<i64>,
+        option_none: Option<i64>,
+        option_empty: Option<i64>,
     }
 
     let mut fields = HashMap::new();
@@ -850,6 +887,18 @@ fn test_fields() {
             value_type: Some(ValueType::BytesValue(vec![0, 1, 2])),
         },
     );
+    fields.insert(
+        "option_some".to_string(),
+        Value {
+            value_type: Some(ValueType::IntegerValue(10)),
+        },
+    );
+    fields.insert(
+        "option_none".to_string(),
+        Value {
+            value_type: Some(ValueType::NullValue(0)),
+        },
+    );
 
     let test: Test = from_fields(&fields).unwrap();
     let expected = Test {
@@ -860,6 +909,9 @@ fn test_fields() {
         float: 0.1,
         c: 'x',
         bytes: vec![0, 1, 2],
+        option_some: Some(10),
+        option_none: None,
+        option_empty: None,
     };
     assert_eq!(expected, test);
 }
