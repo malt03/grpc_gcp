@@ -114,6 +114,20 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    fn get_bool(&mut self) -> Result<bool> {
+        match self.pop()? {
+            FieldElement::Key(_) => Err(Error::ExpectedBoolean),
+            FieldElement::Value(value) => {
+                if let Some(ref value_type) = value.value_type {
+                    if let ValueType::BooleanValue(value) = value_type {
+                        return Ok(*value);
+                    }
+                }
+                Err(Error::ExpectedBoolean)
+            }
+        }
+    }
+
     // // Look at the first character in the input without consuming it.
     // fn peek_char(&mut self) -> Result<char> {
     //     self.input.chars().next().ok_or(Error::Eof)
@@ -238,8 +252,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
-        // visitor.visit_bool(self.parse_bool()?)
+        visitor.visit_bool(self.get_bool()?)
     }
 
     // The `parse_signed` function is generic over the integer type `T` so here
@@ -334,7 +347,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         let str = self.get_string()?;
         visitor.visit_str(&str)
-        // visitor.visit_borrowed_str(self.parse_string()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
@@ -752,14 +764,15 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
 fn test_fields() {
     #[derive(Deserialize, PartialEq, Debug)]
     struct Test {
-        str: String,
+        s: String,
         uint: u64,
         int: i64,
+        b: bool,
     }
 
     let mut fields = HashMap::new();
     fields.insert(
-        "str".to_string(),
+        "s".to_string(),
         Value {
             value_type: Some(ValueType::StringValue("hoge".to_string())),
         },
@@ -776,12 +789,19 @@ fn test_fields() {
             value_type: Some(ValueType::IntegerValue(-24)),
         },
     );
+    fields.insert(
+        "b".to_string(),
+        Value {
+            value_type: Some(ValueType::BooleanValue(true)),
+        },
+    );
 
     let test: Test = from_fields(&fields).unwrap();
     let expected = Test {
-        str: "hoge".into(),
+        s: "hoge".into(),
         uint: 24,
         int: -24,
+        b: true,
     };
     assert_eq!(expected, test);
 }
