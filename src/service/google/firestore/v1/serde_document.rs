@@ -170,6 +170,22 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    fn get_bytes(&mut self) -> Result<Vec<u8>> {
+        match self.pop()? {
+            FieldElement::Key(_) => Err(Error::ExpectedBytes),
+            FieldElement::Value(value) => {
+                if let Some(ref value_type) = value.value_type {
+                    return match value_type {
+                        ValueType::BytesValue(value) => Ok(value.clone()),
+                        ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
+                        _ => Err(Error::ExpectedBytes),
+                    };
+                }
+                Err(Error::ExpectedBytes)
+            }
+        }
+    }
+
     // // Look at the first character in the input without consuming it.
     // fn peek_char(&mut self) -> Result<char> {
     //     self.input.chars().next().ok_or(Error::Eof)
@@ -353,8 +369,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_f64(self.get_f64()?)
     }
 
-    // The `Serializer` implementation on the previous page serialized chars as
-    // single-character strings so handle that representation here.
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -362,8 +376,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_char(self.get_char()?)
     }
 
-    // Refer to the "Understanding deserializer lifetimes" page for information
-    // about the three deserialization flavors of strings in Serde.
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -379,13 +391,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_str(visitor)
     }
 
-    // The `Serializer` implementation on the previous page serialized byte
-    // arrays as JSON arrays of bytes. Handle that representation here.
-    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        let bytes = self.get_bytes()?;
+        visitor.visit_bytes(&bytes)
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
@@ -786,13 +797,14 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
 #[test]
 fn test_fields() {
     #[derive(Deserialize, PartialEq, Debug)]
-    struct Test {
+    struct Test<'t> {
         s: String,
         uint: u64,
         int: i64,
         b: bool,
         float: f32,
         c: char,
+        bytes: &'t [u8],
     }
 
     let mut fields = HashMap::new();
@@ -832,6 +844,12 @@ fn test_fields() {
             value_type: Some(ValueType::StringValue("x".into())),
         },
     );
+    fields.insert(
+        "bytes".to_string(),
+        Value {
+            value_type: Some(ValueType::StringValue("xyz".into())),
+        },
+    );
 
     let test: Test = from_fields(&fields).unwrap();
     let expected = Test {
@@ -841,47 +859,7 @@ fn test_fields() {
         b: true,
         float: 0.1,
         c: 'x',
+        bytes: b"xyz",
     };
     assert_eq!(expected, test);
 }
-// fn test_struct() {
-//     #[derive(Deserialize, PartialEq, Debug)]
-//     struct Test {
-//         int: u32,
-//         seq: Vec<String>,
-//     }
-
-//     let j = r#"{"int":1,"seq":["a","b"]}"#;
-//     let expected = Test {
-//         int: 1,
-//         seq: vec!["a".to_owned(), "b".to_owned()],
-//     };
-//     assert_eq!(expected, from_str(j).unwrap());
-// }
-
-// #[test]
-// fn test_enum() {
-//     #[derive(Deserialize, PartialEq, Debug)]
-//     enum E {
-//         Unit,
-//         Newtype(u32),
-//         Tuple(u32, u32),
-//         Struct { a: u32 },
-//     }
-
-//     let j = r#""Unit""#;
-//     let expected = E::Unit;
-//     assert_eq!(expected, from_str(j).unwrap());
-
-//     let j = r#"{"Newtype":1}"#;
-//     let expected = E::Newtype(1);
-//     assert_eq!(expected, from_str(j).unwrap());
-
-//     let j = r#"{"Tuple":[1,2]}"#;
-//     let expected = E::Tuple(1, 2);
-//     assert_eq!(expected, from_str(j).unwrap());
-
-//     let j = r#"{"Struct":{"a":1}}"#;
-//     let expected = E::Struct { a: 1 };
-//     assert_eq!(expected, from_str(j).unwrap());
-// }
