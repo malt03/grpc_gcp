@@ -145,9 +145,29 @@ impl<'de> Deserializer<'de> {
     fn get_f32(&mut self) -> Result<f32> {
         let value = self.get_f64()?;
         if value > f32::MAX as f64 && value < f32::MIN as f64 {
-            return Err(Error::CouldNotConvertNumber);
+            Err(Error::CouldNotConvertNumber)
+        } else {
+            Ok(value as f32)
         }
-        return Ok(value as f32);
+    }
+
+    fn get_char(&mut self) -> Result<char> {
+        match self.get_string() {
+            Err(err) => {
+                return Err(if err == Error::ExpectedString {
+                    Error::ExpectedChar
+                } else {
+                    err
+                });
+            }
+            Ok(str) => {
+                if str.len() != 1 {
+                    Err(Error::ExpectedChar)
+                } else {
+                    Ok(str.chars().next().unwrap())
+                }
+            }
+        }
     }
 
     // // Look at the first character in the input without consuming it.
@@ -319,7 +339,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_u64(self.get_unsigned()?)
     }
 
-    // Float parsing is stupidly hard.
     fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -327,7 +346,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_f32(self.get_f32()?)
     }
 
-    // Float parsing is stupidly hard.
     fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -337,12 +355,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     // The `Serializer` implementation on the previous page serialized chars as
     // single-character strings so handle that representation here.
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        // Parse a string, check that it is one character, call `visit_char`.
-        unimplemented!()
+        visitor.visit_char(self.get_char()?)
     }
 
     // Refer to the "Understanding deserializer lifetimes" page for information
@@ -775,13 +792,14 @@ fn test_fields() {
         int: i64,
         b: bool,
         float: f32,
+        c: char,
     }
 
     let mut fields = HashMap::new();
     fields.insert(
         "s".to_string(),
         Value {
-            value_type: Some(ValueType::StringValue("hoge".to_string())),
+            value_type: Some(ValueType::StringValue("hoge".into())),
         },
     );
     fields.insert(
@@ -808,6 +826,12 @@ fn test_fields() {
             value_type: Some(ValueType::DoubleValue(0.1)),
         },
     );
+    fields.insert(
+        "c".to_string(),
+        Value {
+            value_type: Some(ValueType::StringValue("x".into())),
+        },
+    );
 
     let test: Test = from_fields(&fields).unwrap();
     let expected = Test {
@@ -816,6 +840,7 @@ fn test_fields() {
         int: -24,
         b: true,
         float: 0.1,
+        c: 'x',
     };
     assert_eq!(expected, test);
 }
