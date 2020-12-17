@@ -62,6 +62,20 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    fn get_bool(&mut self) -> Result<bool> {
+        match self.pop()? {
+            FieldElement::Key(_) => Err(Error::ExpectedBoolean),
+            FieldElement::Value(value) => {
+                if let Some(ref value_type) = value.value_type {
+                    if let ValueType::BooleanValue(value) = value_type {
+                        return Ok(*value);
+                    }
+                }
+                Err(Error::ExpectedBoolean)
+            }
+        }
+    }
+
     fn get_string(&mut self) -> Result<String> {
         match self.pop()? {
             FieldElement::Key(key) => Ok(key.clone()),
@@ -78,7 +92,7 @@ impl<'de> Deserializer<'de> {
 
     fn get_unsigned<T>(&mut self) -> Result<T>
     where
-        T: AddAssign<T> + MulAssign<T> + TryFrom<u64>,
+        T: TryFrom<u64>,
     {
         match self.pop()? {
             FieldElement::Key(_) => Err(Error::ExpectedInteger),
@@ -87,9 +101,9 @@ impl<'de> Deserializer<'de> {
                     if let ValueType::IntegerValue(value) = value_type {
                         let min = u64::min_value() as i64;
                         if *value < min {
-                            return Err(Error::CouldNotConvertInteger);
+                            return Err(Error::CouldNotConvertNumber);
                         }
-                        return T::try_from(*value as u64).or(Err(Error::CouldNotConvertInteger));
+                        return T::try_from(*value as u64).or(Err(Error::CouldNotConvertNumber));
                     }
                 }
                 Err(Error::ExpectedInteger)
@@ -99,14 +113,14 @@ impl<'de> Deserializer<'de> {
 
     fn get_signed<T>(&mut self) -> Result<T>
     where
-        T: AddAssign<T> + MulAssign<T> + TryFrom<i64>,
+        T: TryFrom<i64>,
     {
         match self.pop()? {
             FieldElement::Key(_) => Err(Error::ExpectedInteger),
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::IntegerValue(value) = value_type {
-                        return T::try_from(*value).or(Err(Error::CouldNotConvertInteger));
+                        return T::try_from(*value).or(Err(Error::CouldNotConvertNumber));
                     }
                 }
                 Err(Error::ExpectedInteger)
@@ -114,18 +128,26 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    fn get_bool(&mut self) -> Result<bool> {
+    fn get_f64(&mut self) -> Result<f64> {
         match self.pop()? {
-            FieldElement::Key(_) => Err(Error::ExpectedBoolean),
+            FieldElement::Key(_) => Err(Error::ExpectedInteger),
             FieldElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
-                    if let ValueType::BooleanValue(value) = value_type {
+                    if let ValueType::DoubleValue(value) = value_type {
                         return Ok(*value);
                     }
                 }
-                Err(Error::ExpectedBoolean)
+                Err(Error::ExpectedInteger)
             }
         }
+    }
+
+    fn get_f32(&mut self) -> Result<f32> {
+        let value = self.get_f64()?;
+        if value > f32::MAX as f64 && value < f32::MIN as f64 {
+            return Err(Error::CouldNotConvertNumber);
+        }
+        return Ok(value as f32);
     }
 
     // // Look at the first character in the input without consuming it.
@@ -234,20 +256,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         // }
     }
 
-    // Uses the `parse_bool` parsing function defined above to read the JSON
-    // identifier `true` or `false` from the input.
-    //
-    // Parsing refers to looking at the input and deciding that it contains the
-    // JSON value `true` or `false`.
-    //
-    // Deserialization refers to mapping that JSON value into Serde's data
-    // model by invoking one of the `Visitor` methods. In the case of JSON and
-    // bool that mapping is straightforward so the distinction may seem silly,
-    // but in other cases Deserializers sometimes perform non-obvious mappings.
-    // For example the TOML format has a Datetime type and Serde's data model
-    // does not. In the `toml` crate, a Datetime in the input is deserialized by
-    // mapping it to a Serde data model "struct" type with a special name and a
-    // single field containing the Datetime represented as a string.
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -255,8 +263,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_bool(self.get_bool()?)
     }
 
-    // The `parse_signed` function is generic over the integer type `T` so here
-    // it is invoked with `T=i8`. The next 8 methods are similar.
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -314,19 +320,19 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 
     // Float parsing is stupidly hard.
-    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        visitor.visit_f32(self.get_f32()?)
     }
 
     // Float parsing is stupidly hard.
-    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        visitor.visit_f64(self.get_f64()?)
     }
 
     // The `Serializer` implementation on the previous page serialized chars as
@@ -768,6 +774,7 @@ fn test_fields() {
         uint: u64,
         int: i64,
         b: bool,
+        float: f32,
     }
 
     let mut fields = HashMap::new();
@@ -795,6 +802,12 @@ fn test_fields() {
             value_type: Some(ValueType::BooleanValue(true)),
         },
     );
+    fields.insert(
+        "float".to_string(),
+        Value {
+            value_type: Some(ValueType::DoubleValue(0.1)),
+        },
+    );
 
     let test: Test = from_fields(&fields).unwrap();
     let expected = Test {
@@ -802,6 +815,7 @@ fn test_fields() {
         uint: 24,
         int: -24,
         b: true,
+        float: 0.1,
     };
     assert_eq!(expected, test);
 }

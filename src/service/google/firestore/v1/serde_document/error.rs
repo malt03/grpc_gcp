@@ -36,7 +36,7 @@ pub enum Error {
     ExpectedMapEnd,
     ExpectedEnum,
     TrailingCharacters,
-    CouldNotConvertInteger,
+    CouldNotConvertNumber,
 }
 
 impl ser::Error for Error {
@@ -71,7 +71,7 @@ impl Display for Error {
             Error::ExpectedMapEnd => formatter.write_str("ExpectedMapEnd"),
             Error::ExpectedEnum => formatter.write_str("ExpectedEnum"),
             Error::TrailingCharacters => formatter.write_str("TrailingCharacters"),
-            Error::CouldNotConvertInteger => formatter.write_str("CouldNotConvertInteger,"),
+            Error::CouldNotConvertNumber => formatter.write_str("CouldNotConvertNumber,"),
         }
     }
 }

@@ -31,15 +31,6 @@ struct Person {
 }
 
 fn main() {
-    let i: i64 = 2147483647;
-    let u: u8 = i as u8;
-    // let u: u32 = TryFrom::try_from(i);
-    println!("{}, {}", i, u);
-    // let data = r#"{"name":"John Doe","age":"29"}"#;
-
-    // let result: serde_document::Result<Person> = serde_document::from_fields(data);
-    // match result {
-    //     Err(e) => println!("{:?}", e),
-    //     Ok(p) => println!("{:?}", p),
-    // }
+    let f: f64 = 0.1;
+    let ff: f32 = f;
 }
