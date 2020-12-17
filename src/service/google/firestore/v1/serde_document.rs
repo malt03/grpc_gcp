@@ -395,15 +395,14 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        let bytes = self.get_bytes()?;
-        visitor.visit_bytes(&bytes)
+        visitor.visit_bytes(&self.get_bytes()?)
     }
 
-    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        self.deserialize_bytes(visitor)
     }
 
     // An absent optional is represented as the JSON `null` and a present
@@ -797,14 +796,15 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
 #[test]
 fn test_fields() {
     #[derive(Deserialize, PartialEq, Debug)]
-    struct Test<'t> {
+    struct Test {
         s: String,
         uint: u64,
         int: i64,
         b: bool,
         float: f32,
         c: char,
-        bytes: &'t [u8],
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
     }
 
     let mut fields = HashMap::new();
@@ -847,7 +847,7 @@ fn test_fields() {
     fields.insert(
         "bytes".to_string(),
         Value {
-            value_type: Some(ValueType::StringValue("xyz".into())),
+            value_type: Some(ValueType::BytesValue(vec![0, 1, 2])),
         },
     );
 
@@ -859,7 +859,7 @@ fn test_fields() {
         b: true,
         float: 0.1,
         c: 'x',
-        bytes: b"xyz",
+        bytes: vec![0, 1, 2],
     };
     assert_eq!(expected, test);
 }

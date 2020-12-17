@@ -17,6 +17,7 @@ futures = "^0.3.8"
 http = "^0.2.1"
 serde = "^1.0"
 async-trait = "^0.1.42"
+serde_bytes = "^0.11"
 
 [build-dependencies]
 tonic-build = "^0.3.1"
