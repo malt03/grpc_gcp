@@ -461,7 +461,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_none()
     }
 
-    // In Serde, unit means an anonymous value containing no data.
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -482,7 +481,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         }
     }
 
-    // Unit struct means a named value containing no data.
     fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -837,7 +835,7 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
 #[cfg(test)]
 mod tests {
     use super::from_fields;
-    use crate::proto::google::firestore::v1::{value::ValueType, Value};
+    use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
     use maplit::hashmap;
     use serde::Deserialize;
     use std::collections::HashMap;
@@ -847,6 +845,12 @@ mod tests {
             Value {
                 value_type: Some(value_type),
             }
+        }
+    }
+
+    impl MapValue {
+        fn new(hashmap: HashMap<String, Value>) -> Self {
+            MapValue { fields: hashmap }
         }
     }
 
@@ -866,9 +870,18 @@ mod tests {
             option_none: Option<i64>,
             option_empty: Option<i64>,
             unit: (),
+            child: Child,
+        }
+
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Child {
+            value: i32,
         }
 
         let bytes: Vec<u8> = vec![0, 1, 2];
+        let child = MapValue::new(hashmap! {
+            "value".into() => Value::new(ValueType::IntegerValue(2)),
+        });
         let fields: HashMap<String, Value> = hashmap! {
             "s".into() => Value::new(ValueType::StringValue("hoge".into())),
             "uint".into() => Value::new(ValueType::IntegerValue(24)),
@@ -880,6 +893,7 @@ mod tests {
             "option_some".into() => Value::new(ValueType::IntegerValue(10)),
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
+            "child".into() => Value::new(ValueType::MapValue(child)),
         };
 
         let test: Test = from_fields(&fields).unwrap();
@@ -895,6 +909,7 @@ mod tests {
             option_none: None,
             option_empty: None,
             unit: (),
+            child: Child { value: 2 },
         };
         assert_eq!(expected, test);
     }
