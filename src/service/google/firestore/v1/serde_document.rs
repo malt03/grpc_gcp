@@ -462,17 +462,24 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 
     // In Serde, unit means an anonymous value containing no data.
-    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
-        // if self.input.starts_with("null") {
-        //     self.input = &self.input["null".len()..];
-        //     visitor.visit_unit()
-        // } else {
-        //     Err(Error::ExpectedNull)
-        // }
+        match self.pop()? {
+            FieldElement::Key(_) => Err(Error::UnexpectedKey),
+            FieldElement::Value(value) => {
+                if let Some(ref value_type) = value.value_type {
+                    if let ValueType::NullValue(_) = value_type {
+                        visitor.visit_unit()
+                    } else {
+                        Err(Error::ExpectedNull)
+                    }
+                } else {
+                    Err(Error::ExpectedNull)
+                }
+            }
+        }
     }
 
     // Unit struct means a named value containing no data.
@@ -827,91 +834,68 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[test]
-fn test_fields() {
-    #[derive(Deserialize, PartialEq, Debug)]
-    struct Test {
-        s: String,
-        uint: u64,
-        int: i64,
-        b: bool,
-        float: f32,
-        c: char,
-        #[serde(with = "serde_bytes")]
-        bytes: Vec<u8>,
-        option_some: Option<i64>,
-        option_none: Option<i64>,
-        option_empty: Option<i64>,
+#[cfg(test)]
+mod tests {
+    use super::from_fields;
+    use crate::proto::google::firestore::v1::{value::ValueType, Value};
+    use maplit::hashmap;
+    use serde::Deserialize;
+    use std::collections::HashMap;
+
+    impl Value {
+        fn new(value_type: ValueType) -> Self {
+            Value {
+                value_type: Some(value_type),
+            }
+        }
     }
 
-    let mut fields = HashMap::new();
-    fields.insert(
-        "s".to_string(),
-        Value {
-            value_type: Some(ValueType::StringValue("hoge".into())),
-        },
-    );
-    fields.insert(
-        "uint".to_string(),
-        Value {
-            value_type: Some(ValueType::IntegerValue(24)),
-        },
-    );
-    fields.insert(
-        "int".to_string(),
-        Value {
-            value_type: Some(ValueType::IntegerValue(-24)),
-        },
-    );
-    fields.insert(
-        "b".to_string(),
-        Value {
-            value_type: Some(ValueType::BooleanValue(true)),
-        },
-    );
-    fields.insert(
-        "float".to_string(),
-        Value {
-            value_type: Some(ValueType::DoubleValue(0.1)),
-        },
-    );
-    fields.insert(
-        "c".to_string(),
-        Value {
-            value_type: Some(ValueType::StringValue("x".into())),
-        },
-    );
-    fields.insert(
-        "bytes".to_string(),
-        Value {
-            value_type: Some(ValueType::BytesValue(vec![0, 1, 2])),
-        },
-    );
-    fields.insert(
-        "option_some".to_string(),
-        Value {
-            value_type: Some(ValueType::IntegerValue(10)),
-        },
-    );
-    fields.insert(
-        "option_none".to_string(),
-        Value {
-            value_type: Some(ValueType::NullValue(0)),
-        },
-    );
+    #[test]
+    fn test_fields() {
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Test {
+            s: String,
+            uint: u64,
+            int: i64,
+            b: bool,
+            float: f32,
+            c: char,
+            #[serde(with = "serde_bytes")]
+            bytes: Vec<u8>,
+            option_some: Option<i64>,
+            option_none: Option<i64>,
+            option_empty: Option<i64>,
+            unit: (),
+        }
 
-    let test: Test = from_fields(&fields).unwrap();
-    let expected = Test {
-        s: "hoge".into(),
-        uint: 24,
-        int: -24,
-        b: true,
-        float: 0.1,
-        c: 'x',
-        bytes: vec![0, 1, 2],
-        option_some: Some(10),
-        option_none: None,
-        option_empty: None,
-    };
-    assert_eq!(expected, test);
+        let bytes: Vec<u8> = vec![0, 1, 2];
+        let fields: HashMap<String, Value> = hashmap! {
+            "s".into() => Value::new(ValueType::StringValue("hoge".into())),
+            "uint".into() => Value::new(ValueType::IntegerValue(24)),
+            "int".into() => Value::new(ValueType::IntegerValue(-24)),
+            "b".into() => Value::new(ValueType::BooleanValue(true)),
+            "float".into() => Value::new(ValueType::DoubleValue(0.1)),
+            "c".into() => Value::new(ValueType::StringValue("x".into())),
+            "bytes".into() => Value::new(ValueType::BytesValue(bytes)),
+            "option_some".into() => Value::new(ValueType::IntegerValue(10)),
+            "option_none".into() => Value::new(ValueType::NullValue(0)),
+            "unit".into() => Value::new(ValueType::NullValue(0)),
+        };
+
+        let test: Test = from_fields(&fields).unwrap();
+        let expected = Test {
+            s: "hoge".into(),
+            uint: 24,
+            int: -24,
+            b: true,
+            float: 0.1,
+            c: 'x',
+            bytes: vec![0, 1, 2],
+            option_some: Some(10),
+            option_none: None,
+            option_empty: None,
+            unit: (),
+        };
+        assert_eq!(expected, test);
+    }
 }
