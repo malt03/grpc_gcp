@@ -4,11 +4,7 @@ use crate::proto::google::firestore::v1::{value::ValueType, Value};
 pub use error::{Error, Result};
 use serde::de::{self, DeserializeSeed, MapAccess, Visitor};
 use serde::Deserialize;
-use std::{
-    collections::{hash_map::Iter, HashMap},
-    convert::TryFrom,
-    iter::Peekable,
-};
+use std::{collections::hash_map, collections::HashMap, convert::TryFrom, iter::Peekable, mem};
 
 impl ValueType {
     fn is_some_value(&self) -> bool {
@@ -20,25 +16,35 @@ impl ValueType {
     }
 }
 
-pub struct Deserializer<'de> {
-    entries: Peekable<Iter<'de, String, Value>>,
-    poped_value: Option<&'de Value>,
+pub struct Deserializer {
+    processing_bundle: DeserializerBundle,
+    bundle_stack: Vec<DeserializerBundle>,
 }
 
-impl<'de> Deserializer<'de> {
-    // By convention, `Deserializer` constructors are named like `from_xyz`.
-    // That way basic use cases are satisfied by something like
-    // `serde_json::from_str(...)` while advanced use cases that require a
-    // deserializer can make one with `serde_json::Deserializer::from_str(...)`.
-    pub fn from_fields(input: &'de HashMap<String, Value>) -> Self {
+impl Deserializer {
+    pub fn from_fields(input: HashMap<String, Value>) -> Self {
         Deserializer {
-            entries: input.iter().peekable(),
+            processing_bundle: DeserializerBundle::from_fields(input),
+            bundle_stack: Vec::new(),
+        }
+    }
+}
+
+struct DeserializerBundle {
+    entries: Peekable<hash_map::IntoIter<String, Value>>,
+    poped_value: Option<Value>,
+}
+
+impl DeserializerBundle {
+    pub fn from_fields(input: HashMap<String, Value>) -> Self {
+        DeserializerBundle {
+            entries: input.into_iter().peekable(),
             poped_value: None,
         }
     }
 }
 
-pub fn from_fields<'a, T>(s: &'a HashMap<String, Value>) -> Result<T>
+pub fn from_fields<'a, T>(s: HashMap<String, Value>) -> Result<T>
 where
     T: Deserialize<'a>,
 {
@@ -46,37 +52,39 @@ where
     Ok(T::deserialize(&mut deserializer)?)
 }
 
-enum FieldElement<'de> {
-    Key(&'de String),
-    Value(&'de Value),
+enum FieldElement {
+    Key(String),
+    Value(Value),
 }
 
-impl<'de> Deserializer<'de> {
+enum PeekedFieldElement<'a> {
+    Key(&'a String),
+    Value(&'a Value),
+}
+
+impl Deserializer {
     fn pop(&mut self) -> Result<FieldElement> {
-        match self.poped_value {
+        match mem::replace(&mut self.processing_bundle.poped_value, None) {
             Some(value) => {
-                self.poped_value = None;
+                self.processing_bundle.poped_value = None;
                 Ok(FieldElement::Value(value))
             }
-            None => match self.entries.next() {
+            None => match self.processing_bundle.entries.next() {
                 None => Err(Error::Eof),
                 Some(entriy) => {
-                    self.poped_value = Some(entriy.1);
+                    self.processing_bundle.poped_value = Some(entriy.1);
                     Ok(FieldElement::Key(entriy.0))
                 }
             },
         }
     }
 
-    fn peek(&mut self) -> Result<FieldElement> {
-        match self.poped_value {
-            Some(value) => Ok(FieldElement::Value(value)),
-            None => match self.entries.peek() {
+    fn peek(&mut self) -> Result<PeekedFieldElement> {
+        match self.processing_bundle.poped_value {
+            Some(ref value) => Ok(PeekedFieldElement::Value(value)),
+            None => match self.processing_bundle.entries.peek() {
                 None => Err(Error::Eof),
-                Some(entriy) => {
-                    self.poped_value = Some(entriy.1);
-                    Ok(FieldElement::Key(entriy.0))
-                }
+                Some(entriy) => Ok(PeekedFieldElement::Key(&entriy.0)),
             },
         }
     }
@@ -303,7 +311,7 @@ impl<'de> Deserializer<'de> {
     // }
 }
 
-impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
+impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     type Error = Error;
 
     // Look at the input data to decide what Serde data model type to
@@ -444,10 +452,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         {
             match self.peek()? {
-                FieldElement::Key(_) => {
+                PeekedFieldElement::Key(_) => {
                     return Err(Error::UnexpectedKey);
                 }
-                FieldElement::Value(value) => {
+                PeekedFieldElement::Value(value) => {
                     if let Some(ref value_type) = value.value_type {
                         if value_type.is_some_value() {
                             return visitor.visit_some(self);
@@ -554,7 +562,22 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_map(Entries::new(&mut self))
+        let element = self.pop()?;
+        match element {
+            FieldElement::Key(_) => Err(Error::UnexpectedKey),
+            FieldElement::Value(value) => {
+                if let Some(value_type) = value.value_type {
+                    if let ValueType::MapValue(map_value) = value_type {
+                        let bundle = DeserializerBundle::from_fields(map_value.fields);
+                        let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                        self.bundle_stack.push(replaced);
+                        return visitor.visit_map(Entries::new(&mut self));
+                    }
+                }
+                Err(Error::ExpectedMap)
+            }
+        }
+
         // Parse the opening brace of the map.
         // if self.next_char()? == '{' {
         //     // Give the visitor access to each entry of the map.
@@ -719,17 +742,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 //     }
 // }
 
-struct Entries<'a, 'de: 'a> {
-    de: &'a mut Deserializer<'de>,
+struct Entries<'a> {
+    de: &'a mut Deserializer,
 }
 
-impl<'a, 'de> Entries<'a, 'de> {
-    fn new(de: &'a mut Deserializer<'de>) -> Self {
+impl<'a> Entries<'a> {
+    fn new(de: &'a mut Deserializer) -> Self {
         Entries { de }
     }
 }
 
-impl<'de, 'a> MapAccess<'de> for Entries<'a, 'de> {
+impl<'a, 'de> MapAccess<'de> for Entries<'a> {
     type Error = Error;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
@@ -896,7 +919,7 @@ mod tests {
             "child".into() => Value::new(ValueType::MapValue(child)),
         };
 
-        let test: Test = from_fields(&fields).unwrap();
+        let test: Test = from_fields(fields).unwrap();
         let expected = Test {
             s: "hoge".into(),
             uint: 24,
