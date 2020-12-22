@@ -37,7 +37,7 @@ pub enum Error {
     ExpectedMapComma,
     ExpectedMapEnd,
     ExpectedEnum,
-    UnexpectedKey,
+    ExpectedValue,
     TrailingCharacters,
     CouldNotConvertNumber,
 }
@@ -75,7 +75,7 @@ impl Display for Error {
             Error::ExpectedMapComma => formatter.write_str("ExpectedMapComma"),
             Error::ExpectedMapEnd => formatter.write_str("ExpectedMapEnd"),
             Error::ExpectedEnum => formatter.write_str("ExpectedEnum"),
-            Error::UnexpectedKey => formatter.write_str("UnexpectedKey"),
+            Error::ExpectedValue => formatter.write_str("ExpectedValue"),
             Error::TrailingCharacters => formatter.write_str("TrailingCharacters"),
             Error::CouldNotConvertNumber => formatter.write_str("CouldNotConvertNumber,"),
         }

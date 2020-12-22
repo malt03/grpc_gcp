@@ -1,10 +1,10 @@
 mod error;
 
-use crate::proto::google::firestore::v1::{value::ValueType, Value};
+use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
 pub use error::{Error, Result};
 use serde::de::{self, DeserializeSeed, MapAccess, Visitor};
 use serde::Deserialize;
-use std::{collections::hash_map, collections::HashMap, convert::TryFrom, iter::Peekable, mem};
+use std::{collections::HashMap, convert::TryFrom, iter::Peekable, mem};
 
 impl ValueType {
     fn is_some_value(&self) -> bool {
@@ -24,22 +24,37 @@ pub struct Deserializer {
 impl Deserializer {
     pub fn from_fields(input: HashMap<String, Value>) -> Self {
         Deserializer {
-            processing_bundle: DeserializerBundle::from_fields(input),
+            processing_bundle: DeserializerBundle::root(input),
             bundle_stack: Vec::new(),
         }
     }
 }
 
 struct DeserializerBundle {
-    entries: Peekable<hash_map::IntoIter<String, Value>>,
+    entries: Peekable<Box<dyn Iterator<Item = (String, Value)>>>,
     poped_value: Option<Value>,
 }
 
+impl Value {
+    fn from_fields(input: HashMap<String, Value>) -> Self {
+        Value {
+            value_type: Some(ValueType::MapValue(MapValue { fields: input })),
+        }
+    }
+}
+
 impl DeserializerBundle {
-    pub fn from_fields(input: HashMap<String, Value>) -> Self {
+    fn fields(input: HashMap<String, Value>) -> Self {
         DeserializerBundle {
-            entries: input.into_iter().peekable(),
+            entries: (Box::new(input.into_iter()) as Box<dyn Iterator<Item = _>>).peekable(),
             poped_value: None,
+        }
+    }
+
+    fn root(input: HashMap<String, Value>) -> Self {
+        DeserializerBundle {
+            entries: (Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>).peekable(),
+            poped_value: Some(Value::from_fields(input)),
         }
     }
 }
@@ -55,11 +70,13 @@ where
 enum FieldElement {
     Key(String),
     Value(Value),
+    EndOfFields,
 }
 
 enum PeekedFieldElement<'a> {
     Key(&'a String),
     Value(&'a Value),
+    EndOfFields,
 }
 
 impl Deserializer {
@@ -70,7 +87,13 @@ impl Deserializer {
                 Ok(FieldElement::Value(value))
             }
             None => match self.processing_bundle.entries.next() {
-                None => Err(Error::Eof),
+                None => match self.bundle_stack.pop() {
+                    None => Err(Error::Eof),
+                    Some(bundle) => {
+                        self.processing_bundle = bundle;
+                        Ok(FieldElement::EndOfFields)
+                    }
+                },
                 Some(entriy) => {
                     self.processing_bundle.poped_value = Some(entriy.1);
                     Ok(FieldElement::Key(entriy.0))
@@ -83,26 +106,25 @@ impl Deserializer {
         match self.processing_bundle.poped_value {
             Some(ref value) => Ok(PeekedFieldElement::Value(value)),
             None => match self.processing_bundle.entries.peek() {
-                None => Err(Error::Eof),
+                None => match self.bundle_stack.last() {
+                    None => Err(Error::Eof),
+                    Some(_) => Ok(PeekedFieldElement::EndOfFields),
+                },
                 Some(entriy) => Ok(PeekedFieldElement::Key(&entriy.0)),
             },
         }
     }
 
     fn get_bool(&mut self) -> Result<bool> {
-        match self.pop()? {
-            FieldElement::Key(key) => {
-                println!("bool {}", key);
-                return Err(Error::UnexpectedKey);
-            }
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::BooleanValue(value) = value_type {
-                        return Ok(*value);
-                    }
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                if let ValueType::BooleanValue(value) = value_type {
+                    return Ok(*value);
                 }
-                Err(Error::ExpectedBoolean)
             }
+            Err(Error::ExpectedBoolean)
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
@@ -117,6 +139,7 @@ impl Deserializer {
                 }
                 Err(Error::ExpectedString)
             }
+            FieldElement::EndOfFields => Err(Error::ExpectedString),
         }
     }
 
@@ -124,23 +147,19 @@ impl Deserializer {
     where
         T: TryFrom<u64>,
     {
-        match self.pop()? {
-            FieldElement::Key(key) => {
-                println!("unsigned {}", key);
-                return Err(Error::UnexpectedKey);
-            }
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::IntegerValue(value) = value_type {
-                        let min = u64::min_value() as i64;
-                        if *value < min {
-                            return Err(Error::CouldNotConvertNumber);
-                        }
-                        return T::try_from(*value as u64).or(Err(Error::CouldNotConvertNumber));
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                if let ValueType::IntegerValue(value) = value_type {
+                    let min = u64::min_value() as i64;
+                    if *value < min {
+                        return Err(Error::CouldNotConvertNumber);
                     }
+                    return T::try_from(*value as u64).or(Err(Error::CouldNotConvertNumber));
                 }
-                Err(Error::ExpectedInteger)
             }
+            Err(Error::ExpectedInteger)
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
@@ -148,36 +167,28 @@ impl Deserializer {
     where
         T: TryFrom<i64>,
     {
-        match self.pop()? {
-            FieldElement::Key(key) => {
-                println!("signed {}", key);
-                return Err(Error::UnexpectedKey);
-            }
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::IntegerValue(value) = value_type {
-                        return T::try_from(*value).or(Err(Error::CouldNotConvertNumber));
-                    }
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                if let ValueType::IntegerValue(value) = value_type {
+                    return T::try_from(*value).or(Err(Error::CouldNotConvertNumber));
                 }
-                Err(Error::ExpectedInteger)
             }
+            Err(Error::ExpectedInteger)
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
     fn get_f64(&mut self) -> Result<f64> {
-        match self.pop()? {
-            FieldElement::Key(key) => {
-                println!("f64 {}", key);
-                return Err(Error::UnexpectedKey);
-            }
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::DoubleValue(value) = value_type {
-                        return Ok(*value);
-                    }
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                if let ValueType::DoubleValue(value) = value_type {
+                    return Ok(*value);
                 }
-                Err(Error::ExpectedInteger)
             }
+            Err(Error::ExpectedInteger)
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
@@ -210,21 +221,17 @@ impl Deserializer {
     }
 
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
-        match self.pop()? {
-            FieldElement::Key(key) => {
-                println!("bytes {}", key);
-                return Err(Error::UnexpectedKey);
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                return match value_type {
+                    ValueType::BytesValue(value) => Ok(value.clone()),
+                    ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
+                    _ => Err(Error::ExpectedBytes),
+                };
             }
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    return match value_type {
-                        ValueType::BytesValue(value) => Ok(value.clone()),
-                        ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
-                        _ => Err(Error::ExpectedBytes),
-                    };
-                }
-                Err(Error::ExpectedBytes)
-            }
+            Err(Error::ExpectedBytes)
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
@@ -451,17 +458,14 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         {
-            match self.peek()? {
-                PeekedFieldElement::Key(_) => {
-                    return Err(Error::UnexpectedKey);
-                }
-                PeekedFieldElement::Value(value) => {
-                    if let Some(ref value_type) = value.value_type {
-                        if value_type.is_some_value() {
-                            return visitor.visit_some(self);
-                        }
+            if let PeekedFieldElement::Value(value) = self.peek()? {
+                if let Some(ref value_type) = value.value_type {
+                    if value_type.is_some_value() {
+                        return visitor.visit_some(self);
                     }
                 }
+            } else {
+                return Err(Error::ExpectedValue);
             }
         }
 
@@ -473,19 +477,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        match self.pop()? {
-            FieldElement::Key(_) => Err(Error::UnexpectedKey),
-            FieldElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::NullValue(_) = value_type {
-                        visitor.visit_unit()
-                    } else {
-                        Err(Error::ExpectedNull)
-                    }
-                } else {
-                    Err(Error::ExpectedNull)
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(ref value_type) = value.value_type {
+                if let ValueType::NullValue(_) = value_type {
+                    return visitor.visit_unit();
                 }
             }
+            return Err(Error::ExpectedNull);
+        } else {
+            Err(Error::ExpectedValue)
         }
     }
 
@@ -562,20 +562,18 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        let element = self.pop()?;
-        match element {
-            FieldElement::Key(_) => Err(Error::UnexpectedKey),
-            FieldElement::Value(value) => {
-                if let Some(value_type) = value.value_type {
-                    if let ValueType::MapValue(map_value) = value_type {
-                        let bundle = DeserializerBundle::from_fields(map_value.fields);
-                        let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                        self.bundle_stack.push(replaced);
-                        return visitor.visit_map(Entries::new(&mut self));
-                    }
+        if let FieldElement::Value(value) = self.pop()? {
+            if let Some(value_type) = value.value_type {
+                if let ValueType::MapValue(map_value) = value_type {
+                    let bundle = DeserializerBundle::fields(map_value.fields);
+                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                    self.bundle_stack.push(replaced);
+                    return visitor.visit_map(Entries::new(&mut self));
                 }
-                Err(Error::ExpectedMap)
             }
+            Err(Error::ExpectedMap)
+        } else {
+            Err(Error::ExpectedValue)
         }
 
         // Parse the opening brace of the map.
@@ -759,14 +757,11 @@ impl<'a, 'de> MapAccess<'de> for Entries<'a> {
     where
         K: DeserializeSeed<'de>,
     {
-        match seed.deserialize(&mut *self.de) {
-            Ok(value) => Ok(Some(value)),
-            Err(err) => {
-                if err == Error::Eof {
-                    return Ok(None);
-                }
-                return Err(err);
-            }
+        if let PeekedFieldElement::EndOfFields = self.de.peek()? {
+            self.de.pop()?;
+            Ok(None)
+        } else {
+            Ok(Some(seed.deserialize(&mut *self.de)?))
         }
     }
 
