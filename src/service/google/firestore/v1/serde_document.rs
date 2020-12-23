@@ -544,27 +544,18 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                     let bundle = DeserializerBundle::Array(iter.peekable());
                     let replaced = mem::replace(&mut self.processing_bundle, bundle);
                     self.bundle_stack.push(replaced);
-                    return visitor.visit_seq(Entries::new(&mut self));
+                    let result = visitor.visit_seq(Entries::new(&mut self))?;
+                    if let BundleElement::EndOfBundle = self.pop()? {
+                        return Ok(result);
+                    } else {
+                        return Err(Error::ExpectedArrayEnd);
+                    }
                 }
             }
             Err(Error::ExpectedArray)
         } else {
             Err(Error::ExpectedValue)
         }
-
-        // Parse the opening bracket of the sequence.
-        // if self.next_char()? == '[' {
-        //     // Give the visitor access to each element of the sequence.
-        //     let value = visitor.visit_seq(CommaSeparated::new(&mut self))?;
-        //     // Parse the closing bracket of the sequence.
-        //     if self.next_char()? == ']' {
-        //         Ok(value)
-        //     } else {
-        //         Err(Error::ExpectedArrayEnd)
-        //     }
-        // } else {
-        //     Err(Error::ExpectedArray)
-        // }
     }
 
     // Tuples look just like sequences in JSON. Some formats may be able to
@@ -606,7 +597,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                     let bundle = DeserializerBundle::map(map_value.fields);
                     let replaced = mem::replace(&mut self.processing_bundle, bundle);
                     self.bundle_stack.push(replaced);
-                    return visitor.visit_map(Entries::new(&mut self));
+                    let result = visitor.visit_map(Entries::new(&mut self))?;
+                    if let BundleElement::EndOfBundle = self.pop()? {
+                        return Ok(result);
+                    } else {
+                        return Err(Error::ExpectedMapEnd);
+                    }
                 }
             }
             Err(Error::ExpectedMap)
@@ -796,7 +792,6 @@ impl<'a, 'de> SeqAccess<'de> for Entries<'a> {
         T: DeserializeSeed<'de>,
     {
         if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
-            self.de.pop()?;
             Ok(None)
         } else {
             Ok(Some(seed.deserialize(&mut *self.de)?))
@@ -812,7 +807,6 @@ impl<'a, 'de> MapAccess<'de> for Entries<'a> {
         K: DeserializeSeed<'de>,
     {
         if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
-            self.de.pop()?;
             Ok(None)
         } else {
             Ok(Some(seed.deserialize(&mut *self.de)?))
@@ -919,10 +913,9 @@ mod tests {
             }
         }
     }
-
-    impl MapValue {
-        fn new(hashmap: HashMap<String, Value>) -> Self {
-            MapValue { fields: hashmap }
+    impl Value {
+        fn map(hashmap: HashMap<String, Value>) -> Self {
+            Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
     }
 
@@ -942,18 +935,24 @@ mod tests {
             option_none: Option<i64>,
             option_empty: Option<i64>,
             unit: (),
-            child: Child,
+            child: Child1,
             int_vec: Vec<i64>,
-            child_array: Vec<Child>,
+            child_array: [Child1; 3],
+            child_tuple: (Child1, Child2),
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
-        struct Child {
+        struct Child1 {
             value: i32,
         }
 
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Child2 {
+            value: String,
+        }
+
         let bytes: Vec<u8> = vec![0, 1, 2];
-        let child = MapValue::new(hashmap! {
+        let child = Value::map(hashmap! {
             "value".into() => Value::new(ValueType::IntegerValue(2)),
         });
         let int_vec: Vec<_> = (1..=3)
@@ -961,11 +960,19 @@ mod tests {
             .collect();
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
-                Value::new(ValueType::MapValue(MapValue::new(hashmap! {
+                Value::map(hashmap! {
                     "value".into() => Value::new(ValueType::IntegerValue(i))
-                })))
+                })
             })
             .collect();
+        let child_tuple: Vec<_> = vec![
+            Value::map(hashmap! {
+                "value".into() => Value::new(ValueType::IntegerValue(5))
+            }),
+            Value::map(hashmap! {
+                "value".into() => Value::new(ValueType::StringValue("piyo".into()))
+            }),
+        ];
         let fields: HashMap<String, Value> = hashmap! {
             "s".into() => Value::new(ValueType::StringValue("hoge".into())),
             "uint".into() => Value::new(ValueType::IntegerValue(24)),
@@ -977,9 +984,10 @@ mod tests {
             "option_some".into() => Value::new(ValueType::IntegerValue(10)),
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
-            "child".into() => Value::new(ValueType::MapValue(child)),
+            "child".into() => child,
             "int_vec".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: int_vec })),
             "child_array".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_vec })),
+            "child_tuple".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_tuple })),
         };
 
         let test: Test = from_fields(fields).unwrap();
@@ -995,9 +1003,19 @@ mod tests {
             option_none: None,
             option_empty: None,
             unit: (),
-            child: Child { value: 2 },
+            child: Child1 { value: 2 },
             int_vec: vec![1, 2, 3],
-            child_array: vec![Child { value: 2 }, Child { value: 3 }, Child { value: 4 }],
+            child_array: [
+                Child1 { value: 2 },
+                Child1 { value: 3 },
+                Child1 { value: 4 },
+            ],
+            child_tuple: (
+                Child1 { value: 5 },
+                Child2 {
+                    value: "piyo".into(),
+                },
+            ),
         };
         assert_eq!(expected, test);
     }
