@@ -1,6 +1,7 @@
 mod error;
 
 use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
+use de::SeqAccess;
 pub use error::{Error, Result};
 use serde::de::{self, DeserializeSeed, MapAccess, Visitor};
 use serde::Deserialize;
@@ -30,7 +31,12 @@ impl Deserializer {
     }
 }
 
-struct DeserializerBundle {
+enum DeserializerBundle {
+    Map(MapDeserializerBundle),
+    Array(Peekable<Box<dyn Iterator<Item = Value>>>),
+}
+
+struct MapDeserializerBundle {
     entries: Peekable<Box<dyn Iterator<Item = (String, Value)>>>,
     poped_value: Option<Value>,
 }
@@ -44,18 +50,18 @@ impl Value {
 }
 
 impl DeserializerBundle {
-    fn fields(input: HashMap<String, Value>) -> Self {
-        DeserializerBundle {
+    fn map(input: HashMap<String, Value>) -> Self {
+        DeserializerBundle::Map(MapDeserializerBundle {
             entries: (Box::new(input.into_iter()) as Box<dyn Iterator<Item = _>>).peekable(),
             poped_value: None,
-        }
+        })
     }
 
     fn root(input: HashMap<String, Value>) -> Self {
-        DeserializerBundle {
+        DeserializerBundle::Map(MapDeserializerBundle {
             entries: (Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>).peekable(),
             poped_value: Some(Value::from_fields(input)),
-        }
+        })
     }
 }
 
@@ -67,56 +73,76 @@ where
     Ok(T::deserialize(&mut deserializer)?)
 }
 
-enum FieldElement {
+enum BundleElement {
     Key(String),
     Value(Value),
-    EndOfFields,
+    EndOfBundle,
 }
 
 enum PeekedFieldElement<'a> {
     Key(&'a String),
     Value(&'a Value),
-    EndOfFields,
+    EndOfBundle,
 }
 
 impl Deserializer {
-    fn pop(&mut self) -> Result<FieldElement> {
-        match mem::replace(&mut self.processing_bundle.poped_value, None) {
-            Some(value) => {
-                self.processing_bundle.poped_value = None;
-                Ok(FieldElement::Value(value))
-            }
-            None => match self.processing_bundle.entries.next() {
-                None => match self.bundle_stack.pop() {
-                    None => Err(Error::Eof),
-                    Some(bundle) => {
-                        self.processing_bundle = bundle;
-                        Ok(FieldElement::EndOfFields)
-                    }
-                },
-                Some(entriy) => {
-                    self.processing_bundle.poped_value = Some(entriy.1);
-                    Ok(FieldElement::Key(entriy.0))
+    fn pop(&mut self) -> Result<BundleElement> {
+        fn pop_bundle_stack(de: &mut Deserializer) -> Result<BundleElement> {
+            match de.bundle_stack.pop() {
+                None => Err(Error::Eof),
+                Some(bundle) => {
+                    de.processing_bundle = bundle;
+                    Ok(BundleElement::EndOfBundle)
                 }
+            }
+        }
+        match self.processing_bundle {
+            DeserializerBundle::Map(ref mut bundle) => {
+                match mem::replace(&mut bundle.poped_value, None) {
+                    Some(value) => {
+                        bundle.poped_value = None;
+                        Ok(BundleElement::Value(value))
+                    }
+                    None => match bundle.entries.next() {
+                        None => pop_bundle_stack(self),
+                        Some(entriy) => {
+                            bundle.poped_value = Some(entriy.1);
+                            Ok(BundleElement::Key(entriy.0))
+                        }
+                    },
+                }
+            }
+            DeserializerBundle::Array(ref mut bundle) => match bundle.next() {
+                None => pop_bundle_stack(self),
+                Some(value) => Ok(BundleElement::Value(value)),
             },
         }
     }
 
     fn peek(&mut self) -> Result<PeekedFieldElement> {
-        match self.processing_bundle.poped_value {
-            Some(ref value) => Ok(PeekedFieldElement::Value(value)),
-            None => match self.processing_bundle.entries.peek() {
-                None => match self.bundle_stack.last() {
-                    None => Err(Error::Eof),
-                    Some(_) => Ok(PeekedFieldElement::EndOfFields),
+        fn peek_bundle_stack(bundle_stack: &Vec<DeserializerBundle>) -> Result<PeekedFieldElement> {
+            match bundle_stack.last() {
+                None => Err(Error::Eof),
+                Some(_) => Ok(PeekedFieldElement::EndOfBundle),
+            }
+        }
+        match self.processing_bundle {
+            DeserializerBundle::Map(ref mut bundle) => match bundle.poped_value {
+                Some(ref value) => Ok(PeekedFieldElement::Value(value)),
+                None => match bundle.entries.peek() {
+                    None => peek_bundle_stack(&self.bundle_stack),
+                    Some(entriy) => Ok(PeekedFieldElement::Key(&entriy.0)),
                 },
-                Some(entriy) => Ok(PeekedFieldElement::Key(&entriy.0)),
+            },
+            DeserializerBundle::Array(ref mut bundle) => match bundle.peek() {
+                None => peek_bundle_stack(&self.bundle_stack),
+                Some(value) => Ok(PeekedFieldElement::Value(value)),
             },
         }
     }
 
     fn get_bool(&mut self) -> Result<bool> {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 if let ValueType::BooleanValue(value) = value_type {
                     return Ok(*value);
@@ -130,8 +156,8 @@ impl Deserializer {
 
     fn get_string(&mut self) -> Result<String> {
         match self.pop()? {
-            FieldElement::Key(key) => Ok(key.clone()),
-            FieldElement::Value(value) => {
+            BundleElement::Key(key) => Ok(key.clone()),
+            BundleElement::Value(value) => {
                 if let Some(ref value_type) = value.value_type {
                     if let ValueType::StringValue(value) = value_type {
                         return Ok(value.clone());
@@ -139,7 +165,7 @@ impl Deserializer {
                 }
                 Err(Error::ExpectedString)
             }
-            FieldElement::EndOfFields => Err(Error::ExpectedString),
+            BundleElement::EndOfBundle => Err(Error::ExpectedString),
         }
     }
 
@@ -147,7 +173,7 @@ impl Deserializer {
     where
         T: TryFrom<u64>,
     {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 if let ValueType::IntegerValue(value) = value_type {
                     let min = u64::min_value() as i64;
@@ -167,7 +193,7 @@ impl Deserializer {
     where
         T: TryFrom<i64>,
     {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 if let ValueType::IntegerValue(value) = value_type {
                     return T::try_from(*value).or(Err(Error::CouldNotConvertNumber));
@@ -180,7 +206,7 @@ impl Deserializer {
     }
 
     fn get_f64(&mut self) -> Result<f64> {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 if let ValueType::DoubleValue(value) = value_type {
                     return Ok(*value);
@@ -221,7 +247,7 @@ impl Deserializer {
     }
 
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 return match value_type {
                     ValueType::BytesValue(value) => Ok(value.clone()),
@@ -477,7 +503,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(ref value_type) = value.value_type {
                 if let ValueType::NullValue(_) = value_type {
                     return visitor.visit_unit();
@@ -506,14 +532,26 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_newtype_struct(self)
     }
 
-    // Deserialization of compound types like sequences and maps happens by
-    // passing the visitor an "Access" object that gives it the ability to
-    // iterate through the data contained in the sequence.
-    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        if let BundleElement::Value(value) = self.pop()? {
+            if let Some(value_type) = value.value_type {
+                if let ValueType::ArrayValue(array_value) = value_type {
+                    let iter: Box<dyn Iterator<Item = Value>> =
+                        Box::new(array_value.values.into_iter());
+                    let bundle = DeserializerBundle::Array(iter.peekable());
+                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                    self.bundle_stack.push(replaced);
+                    return visitor.visit_seq(Entries::new(&mut self));
+                }
+            }
+            Err(Error::ExpectedArray)
+        } else {
+            Err(Error::ExpectedValue)
+        }
+
         // Parse the opening bracket of the sequence.
         // if self.next_char()? == '[' {
         //     // Give the visitor access to each element of the sequence.
@@ -562,10 +600,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let FieldElement::Value(value) = self.pop()? {
+        if let BundleElement::Value(value) = self.pop()? {
             if let Some(value_type) = value.value_type {
                 if let ValueType::MapValue(map_value) = value_type {
-                    let bundle = DeserializerBundle::fields(map_value.fields);
+                    let bundle = DeserializerBundle::map(map_value.fields);
                     let replaced = mem::replace(&mut self.processing_bundle, bundle);
                     self.bundle_stack.push(replaced);
                     return visitor.visit_map(Entries::new(&mut self));
@@ -750,6 +788,22 @@ impl<'a> Entries<'a> {
     }
 }
 
+impl<'a, 'de> SeqAccess<'de> for Entries<'a> {
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
+            self.de.pop()?;
+            Ok(None)
+        } else {
+            Ok(Some(seed.deserialize(&mut *self.de)?))
+        }
+    }
+}
+
 impl<'a, 'de> MapAccess<'de> for Entries<'a> {
     type Error = Error;
 
@@ -757,7 +811,7 @@ impl<'a, 'de> MapAccess<'de> for Entries<'a> {
     where
         K: DeserializeSeed<'de>,
     {
-        if let PeekedFieldElement::EndOfFields = self.de.peek()? {
+        if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
             self.de.pop()?;
             Ok(None)
         } else {
@@ -853,7 +907,7 @@ impl<'a, 'de> MapAccess<'de> for Entries<'a> {
 #[cfg(test)]
 mod tests {
     use super::from_fields;
-    use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
+    use crate::proto::google::firestore::v1::{value::ValueType, ArrayValue, MapValue, Value};
     use maplit::hashmap;
     use serde::Deserialize;
     use std::collections::HashMap;
@@ -889,6 +943,8 @@ mod tests {
             option_empty: Option<i64>,
             unit: (),
             child: Child,
+            int_vec: Vec<i64>,
+            child_array: Vec<Child>,
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
@@ -900,6 +956,16 @@ mod tests {
         let child = MapValue::new(hashmap! {
             "value".into() => Value::new(ValueType::IntegerValue(2)),
         });
+        let int_vec: Vec<_> = (1..=3)
+            .map(|i| Value::new(ValueType::IntegerValue(i)))
+            .collect();
+        let child_vec: Vec<_> = (2..=4)
+            .map(|i| {
+                Value::new(ValueType::MapValue(MapValue::new(hashmap! {
+                    "value".into() => Value::new(ValueType::IntegerValue(i))
+                })))
+            })
+            .collect();
         let fields: HashMap<String, Value> = hashmap! {
             "s".into() => Value::new(ValueType::StringValue("hoge".into())),
             "uint".into() => Value::new(ValueType::IntegerValue(24)),
@@ -912,6 +978,8 @@ mod tests {
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
             "child".into() => Value::new(ValueType::MapValue(child)),
+            "int_vec".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: int_vec })),
+            "child_array".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_vec })),
         };
 
         let test: Test = from_fields(fields).unwrap();
@@ -928,6 +996,8 @@ mod tests {
             option_empty: None,
             unit: (),
             child: Child { value: 2 },
+            int_vec: vec![1, 2, 3],
+            child_array: vec![Child { value: 2 }, Child { value: 3 }, Child { value: 4 }],
         };
         assert_eq!(expected, test);
     }
