@@ -85,6 +85,26 @@ enum PeekedFieldElement<'a> {
     EndOfBundle,
 }
 
+impl BundleElement {
+    fn value(self) -> Result<Value> {
+        if let BundleElement::Value(value) = self {
+            Ok(value)
+        } else {
+            Err(Error::ExpectedValue)
+        }
+    }
+}
+
+impl Value {
+    fn mapValue(self) -> Result<MapValue> {
+        if let ValueType::MapValue(value_type) = self.value_type.unwrap() {
+            Ok(value_type)
+        } else {
+            Err(Error::ExpectedMap)
+        }
+    }
+}
+
 impl Deserializer {
     fn pop(&mut self) -> Result<BundleElement> {
         fn pop_bundle_stack(de: &mut Deserializer) -> Result<BundleElement> {
@@ -165,7 +185,9 @@ impl Deserializer {
                 }
                 Err(Error::ExpectedString)
             }
-            BundleElement::EndOfBundle => Err(Error::ExpectedString),
+            BundleElement::EndOfBundle => {
+                return Err(Error::ExpectedString);
+            }
         }
     }
 
@@ -529,12 +551,32 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         self,
         _name: &'static str,
         _variants: &'static [&'static str],
-        _visitor: V,
+        visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        todo!()
+        if let PeekedFieldElement::Value(value) = self.peek()? {
+            if let Some(ref value_type) = value.value_type {
+                return match value_type {
+                    ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
+                    ValueType::MapValue(_) => {
+                        let map_value = self.pop()?.value()?.mapValue()?;
+                        let bundle = DeserializerBundle::map(map_value.fields);
+                        let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                        self.bundle_stack.push(replaced);
+                        let result = visitor.visit_enum(Enum::new(self))?;
+                        if let BundleElement::EndOfBundle = self.pop()? {
+                            return Ok(result);
+                        } else {
+                            return Err(Error::ExpectedMapEnd);
+                        }
+                    }
+                    _ => Err(Error::ExpectedEnum),
+                };
+            }
+        }
+        return Err(Error::ExpectedValue);
         // if self.peek_char()? == '"' {
         //     // Visit a unit variant.
         //     visitor.visit_enum(self.parse_string()?.into_deserializer())
@@ -655,13 +697,12 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
         // The `deserialize_enum` method parsed a `{` character so we are
         // currently inside of a map. The seed will be deserializing itself from
         // the key of the map.
-        let val = seed.deserialize(&mut *self.de)?;
-        // Parse the colon separating map key from value.
-        if self.de.next_char()? == ':' {
-            Ok((val, self))
-        } else {
-            Err(Error::ExpectedMapColon)
-        }
+        Ok((seed.deserialize(&mut *self.de)?, self))
+        // if let PeekedFieldElement::Value(_) = self.de.peek()? {
+        //     Ok((val, self))
+        // } else {
+        //     Err(Error::ExpectedValue)
+        // }
     }
 }
 
@@ -673,7 +714,7 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
     // If the `Visitor` expected this variant to be a unit variant, the input
     // should have been the plain string case handled in `deserialize_enum`.
     fn unit_variant(self) -> Result<()> {
-        Err(Error::ExpectedString)
+        Ok(())
     }
 
     // Newtype variants are represented in JSON as `{ NAME: VALUE }` so
@@ -725,6 +766,20 @@ mod tests {
         fn map(hashmap: HashMap<String, Value>) -> Self {
             Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
+
+        fn child1(value: i64) -> Value {
+            Value::map(hashmap! {
+                "value".into() => Value::new(ValueType::IntegerValue(value)),
+            })
+        }
+
+        fn string(value: impl Into<String>) -> Value {
+            Value::new(ValueType::StringValue(value.into()))
+        }
+
+        fn vec(values: Vec<Value>) -> Value {
+            Value::new(ValueType::ArrayValue(ArrayValue { values: values }))
+        }
     }
 
     #[test]
@@ -747,6 +802,9 @@ mod tests {
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
+            enum_unit: E,
+            enum_struct: E,
+            enum_tuple: E,
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
@@ -759,10 +817,15 @@ mod tests {
             value: String,
         }
 
+        #[derive(Deserialize, PartialEq, Debug)]
+        enum E {
+            Unit,
+            Struct(Child1),
+            Tuple(String, Child1),
+        }
+
         let bytes: Vec<u8> = vec![0, 1, 2];
-        let child = Value::map(hashmap! {
-            "value".into() => Value::new(ValueType::IntegerValue(2)),
-        });
+        let child = Value::child1(2);
         let int_vec: Vec<_> = (1..=3)
             .map(|i| Value::new(ValueType::IntegerValue(i)))
             .collect();
@@ -781,6 +844,13 @@ mod tests {
                 "value".into() => Value::new(ValueType::StringValue("piyo".into()))
             }),
         ];
+        let enum_struct: HashMap<String, Value> = hashmap! {
+            "Struct".into() => Value::child1(6),
+        };
+        let enum_tuple_value = Value::vec(vec![Value::string("fuga"), Value::child1(7)]);
+        let enum_tuple: HashMap<String, Value> = hashmap! {
+            "Tuple".into() => enum_tuple_value,
+        };
         let fields: HashMap<String, Value> = hashmap! {
             "s".into() => Value::new(ValueType::StringValue("hoge".into())),
             "uint".into() => Value::new(ValueType::IntegerValue(24)),
@@ -796,6 +866,9 @@ mod tests {
             "int_vec".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: int_vec })),
             "child_array".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_vec })),
             "child_tuple".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_tuple })),
+            "enum_unit".into() => Value::string("Unit"),
+            "enum_struct".into() => Value::map(enum_struct),
+            "enum_tuple".into() => Value::map(enum_tuple),
         };
 
         let test: Test = from_fields(fields).unwrap();
@@ -824,6 +897,9 @@ mod tests {
                     value: "piyo".into(),
                 },
             ),
+            enum_unit: E::Unit,
+            enum_struct: E::Struct(Child1 { value: 6 }),
+            enum_tuple: E::Tuple("fuga".into(), Child1 { value: 7 }),
         };
         assert_eq!(expected, test);
     }
