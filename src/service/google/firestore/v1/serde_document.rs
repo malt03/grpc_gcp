@@ -96,7 +96,7 @@ impl BundleElement {
 }
 
 impl Value {
-    fn mapValue(self) -> Result<MapValue> {
+    fn map_value(self) -> Result<MapValue> {
         if let ValueType::MapValue(value_type) = self.value_type.unwrap() {
             Ok(value_type)
         } else {
@@ -561,7 +561,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                 return match value_type {
                     ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
                     ValueType::MapValue(_) => {
-                        let map_value = self.pop()?.value()?.mapValue()?;
+                        let map_value = self.pop()?.value()?.map_value()?;
                         let bundle = DeserializerBundle::map(map_value.fields);
                         let replaced = mem::replace(&mut self.processing_bundle, bundle);
                         self.bundle_stack.push(replaced);
