@@ -291,17 +291,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_map(visitor)
-        // match self.peek_char()? {
-        //     'n' => self.deserialize_unit(visitor),
-        //     't' | 'f' => self.deserialize_bool(visitor),
-        //     '"' => self.deserialize_str(visitor),
-        //     '0'..='9' => self.deserialize_u64(visitor),
-        //     '-' => self.deserialize_i64(visitor),
-        //     '[' => self.deserialize_seq(visitor),
-        //     '{' => self.deserialize_map(visitor),
-        //     _ => Err(Error::Syntax),
+        // match self.peek()? {
+        //     PeekedFieldElement::Key(_) => self.deserialize_str(visitor),
+        //     PeekedFieldElement::Value(value) => {
+        //         match value.value_type.unwrap() {
+        //             Valu
+        //         }
+        //     }
         // }
+        self.deserialize_map(visitor)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
@@ -577,27 +575,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
             }
         }
         return Err(Error::ExpectedValue);
-        // if self.peek_char()? == '"' {
-        //     // Visit a unit variant.
-        //     visitor.visit_enum(self.parse_string()?.into_deserializer())
-        // } else if self.next_char()? == '{' {
-        //     // Visit a newtype variant, tuple variant, or struct variant.
-        //     let value = visitor.visit_enum(Enum::new(self))?;
-        //     // Parse the matching close brace.
-        //     if self.next_char()? == '}' {
-        //         Ok(value)
-        //     } else {
-        //         Err(Error::ExpectedMapEnd)
-        //     }
-        // } else {
-        //     Err(Error::ExpectedEnum)
-        // }
     }
 
-    // An identifier in Serde is the type that identifies a field of a struct or
-    // the variant of an enum. In JSON, struct fields and enum variants are
-    // represented as strings. In other formats they may be represented as
-    // numeric indices.
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -605,17 +584,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         self.deserialize_str(visitor)
     }
 
-    // Like `deserialize_any` but indicates to the `Deserializer` that it makes
-    // no difference which `Visitor` method is called because the data is
-    // ignored.
-    //
-    // Some deserializers are able to implement this more efficiently than
-    // `deserialize_any`, for example by rapidly skipping over matched
-    // delimiters without paying close attention to the data in between.
-    //
-    // Some formats are not able to implement this at all. Formats that can
-    // implement `deserialize_any` and `deserialize_ignored_any` are known as
-    // self-describing.
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -681,11 +649,6 @@ impl<'a> Enum<'a> {
     }
 }
 
-// // `EnumAccess` is provided to the `Visitor` to give it the ability to determine
-// // which variant of the enum is supposed to be deserialized.
-// //
-// // Note that all enum deserialization methods in Serde refer exclusively to the
-// // "externally tagged" enum representation.
 impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
     type Error = Error;
     type Variant = Self;
@@ -694,31 +657,17 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
     where
         V: DeserializeSeed<'de>,
     {
-        // The `deserialize_enum` method parsed a `{` character so we are
-        // currently inside of a map. The seed will be deserializing itself from
-        // the key of the map.
         Ok((seed.deserialize(&mut *self.de)?, self))
-        // if let PeekedFieldElement::Value(_) = self.de.peek()? {
-        //     Ok((val, self))
-        // } else {
-        //     Err(Error::ExpectedValue)
-        // }
     }
 }
 
-// `VariantAccess` is provided to the `Visitor` to give it the ability to see
-// the content of the single variant that it decided to deserialize.
 impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
     type Error = Error;
 
-    // If the `Visitor` expected this variant to be a unit variant, the input
-    // should have been the plain string case handled in `deserialize_enum`.
     fn unit_variant(self) -> Result<()> {
         Ok(())
     }
 
-    // Newtype variants are represented in JSON as `{ NAME: VALUE }` so
-    // deserialize the value here.
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
     where
         T: DeserializeSeed<'de>,
@@ -726,8 +675,6 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
         seed.deserialize(self.de)
     }
 
-    // Tuple variants are represented in JSON as `{ NAME: [DATA...] }` so
-    // deserialize the sequence of data here.
     fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -735,8 +682,6 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
         de::Deserializer::deserialize_seq(self.de, visitor)
     }
 
-    // Struct variants are represented in JSON as `{ NAME: { K: V, ... } }` so
-    // deserialize the inner map here.
     fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
@@ -761,8 +706,7 @@ mod tests {
                 value_type: Some(value_type),
             }
         }
-    }
-    impl Value {
+
         fn map(hashmap: HashMap<String, Value>) -> Self {
             Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
@@ -809,6 +753,7 @@ mod tests {
             option_empty: Option<i64>,
             unit: (),
             child: Child1,
+            map: HashMap<String, i32>,
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
@@ -835,6 +780,10 @@ mod tests {
         }
 
         let bytes: Vec<u8> = vec![0, 1, 2];
+        let map: HashMap<String, Value> = hashmap! {
+            "x".into() => Value::integer(8),
+            "y".into() => Value::integer(9),
+        };
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
                 Value::map(hashmap! {
@@ -862,6 +811,7 @@ mod tests {
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
             "child".into() => Value::child1(2),
+            "map".into() => Value::map(map),
             "int_vec".into() => Value::array((1..=3).map(|i| Value::integer(i)).collect()),
             "child_array".into() => Value::array(child_vec),
             "child_tuple".into() => Value::array(child_tuple),
@@ -884,6 +834,7 @@ mod tests {
             option_empty: None,
             unit: (),
             child: Child1 { value: 2 },
+            map: hashmap! { "x".into() => 8, "y".into() => 9 },
             int_vec: vec![1, 2, 3],
             child_array: [
                 Child1 { value: 2 },
