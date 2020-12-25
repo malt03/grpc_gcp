@@ -769,7 +769,13 @@ mod tests {
 
         fn child1(value: i64) -> Value {
             Value::map(hashmap! {
-                "value".into() => Value::new(ValueType::IntegerValue(value)),
+                "value".into() => Value::integer(value),
+            })
+        }
+
+        fn child2(value: impl Into<String>) -> Value {
+            Value::map(hashmap! {
+                "value".into() => Value::string(value),
             })
         }
 
@@ -777,7 +783,11 @@ mod tests {
             Value::new(ValueType::StringValue(value.into()))
         }
 
-        fn vec(values: Vec<Value>) -> Value {
+        fn integer(value: i64) -> Value {
+            Value::new(ValueType::IntegerValue(value))
+        }
+
+        fn array(values: Vec<Value>) -> Value {
             Value::new(ValueType::ArrayValue(ArrayValue { values: values }))
         }
     }
@@ -825,47 +835,36 @@ mod tests {
         }
 
         let bytes: Vec<u8> = vec![0, 1, 2];
-        let child = Value::child1(2);
-        let int_vec: Vec<_> = (1..=3)
-            .map(|i| Value::new(ValueType::IntegerValue(i)))
-            .collect();
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
                 Value::map(hashmap! {
-                    "value".into() => Value::new(ValueType::IntegerValue(i))
+                    "value".into() => Value::integer(i)
                 })
             })
             .collect();
-        let child_tuple: Vec<_> = vec![
-            Value::map(hashmap! {
-                "value".into() => Value::new(ValueType::IntegerValue(5))
-            }),
-            Value::map(hashmap! {
-                "value".into() => Value::new(ValueType::StringValue("piyo".into()))
-            }),
-        ];
+        let child_tuple: Vec<_> = vec![Value::child1(5), Value::child2("piyo")];
         let enum_struct: HashMap<String, Value> = hashmap! {
             "Struct".into() => Value::child1(6),
         };
-        let enum_tuple_value = Value::vec(vec![Value::string("fuga"), Value::child1(7)]);
+        let enum_tuple_value = Value::array(vec![Value::string("fuga"), Value::child1(7)]);
         let enum_tuple: HashMap<String, Value> = hashmap! {
             "Tuple".into() => enum_tuple_value,
         };
         let fields: HashMap<String, Value> = hashmap! {
-            "s".into() => Value::new(ValueType::StringValue("hoge".into())),
-            "uint".into() => Value::new(ValueType::IntegerValue(24)),
-            "int".into() => Value::new(ValueType::IntegerValue(-24)),
+            "s".into() => Value::string("hoge"),
+            "uint".into() => Value::integer(24),
+            "int".into() => Value::integer(-24),
             "b".into() => Value::new(ValueType::BooleanValue(true)),
             "float".into() => Value::new(ValueType::DoubleValue(0.1)),
-            "c".into() => Value::new(ValueType::StringValue("x".into())),
+            "c".into() => Value::string("x"),
             "bytes".into() => Value::new(ValueType::BytesValue(bytes)),
-            "option_some".into() => Value::new(ValueType::IntegerValue(10)),
+            "option_some".into() => Value::integer(10),
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
-            "child".into() => child,
-            "int_vec".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: int_vec })),
-            "child_array".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_vec })),
-            "child_tuple".into() => Value::new(ValueType::ArrayValue(ArrayValue { values: child_tuple })),
+            "child".into() => Value::child1(2),
+            "int_vec".into() => Value::array((1..=3).map(|i| Value::integer(i)).collect()),
+            "child_array".into() => Value::array(child_vec),
+            "child_tuple".into() => Value::array(child_tuple),
             "enum_unit".into() => Value::string("Unit"),
             "enum_struct".into() => Value::map(enum_struct),
             "enum_tuple".into() => Value::map(enum_tuple),
