@@ -96,11 +96,28 @@ impl BundleElement {
 }
 
 impl Value {
-    fn map_value(self) -> Result<MapValue> {
-        if let ValueType::MapValue(value_type) = self.value_type.unwrap() {
-            Ok(value_type)
-        } else {
-            Err(Error::ExpectedMap)
+    fn new(value_type: ValueType) -> Self {
+        Value {
+            value_type: Some(value_type),
+        }
+    }
+
+    fn map_value(self) -> Result<HashMap<String, Value>> {
+        match self.value_type.unwrap() {
+            ValueType::MapValue(value) => Ok(value.fields),
+            ValueType::GeoPointValue(value) => {
+                let mut map = HashMap::new();
+                map.insert(
+                    "latitude".into(),
+                    Value::new(ValueType::DoubleValue(value.latitude)),
+                );
+                map.insert(
+                    "longitude".into(),
+                    Value::new(ValueType::DoubleValue(value.longitude)),
+                );
+                Ok(map)
+            }
+            _ => Err(Error::ExpectedMap),
         }
     }
 }
@@ -514,20 +531,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(value_type) = value.value_type {
-                if let ValueType::MapValue(map_value) = value_type {
-                    let bundle = DeserializerBundle::map(map_value.fields);
-                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                    self.bundle_stack.push(replaced);
-                    let result = visitor.visit_map(Entries::new(&mut self))?;
-                    if let BundleElement::EndOfBundle = self.pop()? {
-                        return Ok(result);
-                    } else {
-                        return Err(Error::ExpectedMapEnd);
-                    }
-                }
+            let bundle = DeserializerBundle::map(value.map_value()?);
+            let replaced = mem::replace(&mut self.processing_bundle, bundle);
+            self.bundle_stack.push(replaced);
+            let result = visitor.visit_map(Entries::new(&mut self))?;
+            if let BundleElement::EndOfBundle = self.pop()? {
+                Ok(result)
+            } else {
+                Err(Error::ExpectedMapEnd)
             }
-            Err(Error::ExpectedMap)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -559,8 +571,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                 return match value_type {
                     ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
                     ValueType::MapValue(_) => {
-                        let map_value = self.pop()?.value()?.map_value()?;
-                        let bundle = DeserializerBundle::map(map_value.fields);
+                        let map = self.pop()?.value()?.map_value()?;
+                        let bundle = DeserializerBundle::map(map);
                         let replaced = mem::replace(&mut self.processing_bundle, bundle);
                         self.bundle_stack.push(replaced);
                         let result = visitor.visit_enum(Enum::new(self))?;
@@ -701,12 +713,6 @@ mod tests {
     use std::collections::HashMap;
 
     impl Value {
-        fn new(value_type: ValueType) -> Self {
-            Value {
-                value_type: Some(value_type),
-            }
-        }
-
         fn map(hashmap: HashMap<String, Value>) -> Self {
             Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
@@ -729,6 +735,10 @@ mod tests {
 
         fn integer(value: i64) -> Value {
             Value::new(ValueType::IntegerValue(value))
+        }
+
+        fn double(value: f64) -> Value {
+            Value::new(ValueType::DoubleValue(value))
         }
 
         fn array(values: Vec<Value>) -> Value {
@@ -754,6 +764,7 @@ mod tests {
             unit: (),
             child: Child1,
             map: HashMap<String, i32>,
+            geo: HashMap<String, f64>,
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
@@ -784,6 +795,10 @@ mod tests {
             "x".into() => Value::integer(8),
             "y".into() => Value::integer(9),
         };
+        let geo: HashMap<String, Value> = hashmap! {
+            "latitude".into() => Value::double(35.6),
+            "longitude".into() => Value::double(139.7),
+        };
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
                 Value::map(hashmap! {
@@ -804,13 +819,14 @@ mod tests {
             "uint".into() => Value::integer(24),
             "int".into() => Value::integer(-24),
             "b".into() => Value::new(ValueType::BooleanValue(true)),
-            "float".into() => Value::new(ValueType::DoubleValue(0.1)),
+            "float".into() => Value::double(0.1),
             "c".into() => Value::string("x"),
             "bytes".into() => Value::new(ValueType::BytesValue(bytes)),
             "option_some".into() => Value::integer(10),
             "option_none".into() => Value::new(ValueType::NullValue(0)),
             "unit".into() => Value::new(ValueType::NullValue(0)),
             "child".into() => Value::child1(2),
+            "geo".into() => Value::map(geo),
             "map".into() => Value::map(map),
             "int_vec".into() => Value::array((1..=3).map(|i| Value::integer(i)).collect()),
             "child_array".into() => Value::array(child_vec),
@@ -834,6 +850,7 @@ mod tests {
             option_empty: None,
             unit: (),
             child: Child1 { value: 2 },
+            geo: hashmap! { "latitude".into() => 35.6, "longitude".into() => 139.7 },
             map: hashmap! { "x".into() => 8, "y".into() => 9 },
             int_vec: vec![1, 2, 3],
             child_array: [
