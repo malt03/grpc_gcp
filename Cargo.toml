@@ -20,7 +20,6 @@ async-trait = "^0.1.42"
 
 [dev-dependencies]
 serde_bytes = "^0.11"
-maplit = "^1.0.2"
 
 [build-dependencies]
 tonic-build = "^0.3.1"

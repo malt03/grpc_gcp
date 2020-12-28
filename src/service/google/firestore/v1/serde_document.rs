@@ -3,9 +3,11 @@ mod error;
 use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
 use de::SeqAccess;
 pub use error::{Error, Result};
-use serde::de::{self, DeserializeSeed, EnumAccess, MapAccess, VariantAccess, Visitor};
-use serde::Deserialize;
-use std::{collections::HashMap, convert::TryFrom, iter::Peekable, mem};
+use serde::{
+    de::{self, DeserializeSeed, EnumAccess, MapAccess, VariantAccess, Visitor},
+    Deserialize,
+};
+use std::{collections::HashMap, convert::TryFrom, iter::FromIterator, iter::Peekable, mem};
 
 impl ValueType {
     fn is_some_value(&self) -> bool {
@@ -102,19 +104,29 @@ impl Value {
         }
     }
 
+    fn integer(value: i64) -> Self {
+        Value::new(ValueType::IntegerValue(value))
+    }
+
+    fn double(value: f64) -> Value {
+        Value::new(ValueType::DoubleValue(value))
+    }
+
     fn map_value(self) -> Result<HashMap<String, Value>> {
         match self.value_type.unwrap() {
             ValueType::MapValue(value) => Ok(value.fields),
             ValueType::GeoPointValue(value) => {
-                let mut map = HashMap::new();
-                map.insert(
-                    "latitude".into(),
-                    Value::new(ValueType::DoubleValue(value.latitude)),
-                );
-                map.insert(
-                    "longitude".into(),
-                    Value::new(ValueType::DoubleValue(value.longitude)),
-                );
+                let map = HashMap::from_iter(vec![
+                    ("latitude".into(), Value::double(value.latitude)),
+                    ("longitude".into(), Value::double(value.longitude)),
+                ]);
+                Ok(map)
+            }
+            ValueType::TimestampValue(value) => {
+                let map = HashMap::from_iter(vec![
+                    ("seconds".into(), Value::integer(value.seconds)),
+                    ("nanos".into(), Value::integer(value.nanos.into())),
+                ]);
                 Ok(map)
             }
             _ => Err(Error::ExpectedMap),
@@ -211,15 +223,16 @@ impl Deserializer {
         T: TryFrom<u64>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::IntegerValue(value) = value.value_type.unwrap() {
-                let min = u64::min_value() as i64;
-                if value < min {
-                    Err(Error::CouldNotConvertNumber)
-                } else {
-                    T::try_from(value as u64).or(Err(Error::CouldNotConvertNumber))
-                }
+            let value = match value.value_type.unwrap() {
+                ValueType::IntegerValue(value) => Ok(value),
+                ValueType::TimestampValue(value) => Ok(value.seconds),
+                _ => Err(Error::ExpectedInteger),
+            }?;
+            let min = u64::min_value() as i64;
+            if value < min {
+                Err(Error::CouldNotConvertNumber)
             } else {
-                Err(Error::ExpectedInteger)
+                T::try_from(value as u64).or(Err(Error::CouldNotConvertNumber))
             }
         } else {
             Err(Error::ExpectedValue)
@@ -231,10 +244,12 @@ impl Deserializer {
         T: TryFrom<i64>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::IntegerValue(value) = value.value_type.unwrap() {
-                return T::try_from(value).or(Err(Error::CouldNotConvertNumber));
-            }
-            Err(Error::ExpectedInteger)
+            let value = match value.value_type.unwrap() {
+                ValueType::IntegerValue(value) => Ok(value),
+                ValueType::TimestampValue(value) => Ok(value.seconds),
+                _ => Err(Error::ExpectedInteger),
+            }?;
+            T::try_from(value).or(Err(Error::CouldNotConvertNumber))
         } else {
             Err(Error::ExpectedValue)
         }
@@ -695,37 +710,38 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 mod tests {
     use super::from_fields;
     use crate::proto::google::firestore::v1::{value::ValueType, ArrayValue, MapValue, Value};
-    use maplit::hashmap;
+    use prost_types::Timestamp;
     use serde::Deserialize;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, iter::FromIterator};
 
     impl Value {
         fn map(hashmap: HashMap<String, Value>) -> Self {
             Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
 
+        fn timestamp(seconds: i64, nanos: i32) -> Self {
+            Value::new(ValueType::TimestampValue(Timestamp {
+                seconds: seconds,
+                nanos: nanos,
+            }))
+        }
+
         fn child1(value: i64) -> Value {
-            Value::map(hashmap! {
-                "value".into() => Value::integer(value),
-            })
+            Value::map(HashMap::from_iter(vec![(
+                "value".into(),
+                Value::integer(value),
+            )]))
         }
 
         fn child2(value: impl Into<String>) -> Value {
-            Value::map(hashmap! {
-                "value".into() => Value::string(value),
-            })
+            Value::map(HashMap::from_iter(vec![(
+                "value".into(),
+                Value::string(value),
+            )]))
         }
 
         fn string(value: impl Into<String>) -> Value {
             Value::new(ValueType::StringValue(value.into()))
-        }
-
-        fn integer(value: i64) -> Value {
-            Value::new(ValueType::IntegerValue(value))
-        }
-
-        fn double(value: f64) -> Value {
-            Value::new(ValueType::DoubleValue(value))
         }
 
         fn array(values: Vec<Value>) -> Value {
@@ -752,6 +768,8 @@ mod tests {
             child: Child1,
             map: HashMap<String, i32>,
             geo: HashMap<String, f64>,
+            time: HashMap<String, i64>,
+            i_time: i64,
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
@@ -778,50 +796,52 @@ mod tests {
         }
 
         let bytes: Vec<u8> = vec![0, 1, 2];
-        let map: HashMap<String, Value> = hashmap! {
-            "x".into() => Value::integer(8),
-            "y".into() => Value::integer(9),
-        };
-        let geo: HashMap<String, Value> = hashmap! {
-            "latitude".into() => Value::double(35.6),
-            "longitude".into() => Value::double(139.7),
-        };
+        let map = HashMap::from_iter(vec![
+            ("x".into(), Value::integer(8)),
+            ("y".into(), Value::integer(9)),
+        ]);
+        let geo = HashMap::from_iter(vec![
+            ("latitude".into(), Value::double(35.6)),
+            ("longitude".into(), Value::double(139.7)),
+        ]);
+        let int_vec: Vec<_> = (1..=3).map(|i| Value::integer(i)).collect();
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
-                Value::map(hashmap! {
-                    "value".into() => Value::integer(i)
-                })
+                Value::map(HashMap::from_iter(vec![(
+                    "value".into(),
+                    Value::integer(i),
+                )]))
             })
             .collect();
         let child_tuple: Vec<_> = vec![Value::child1(5), Value::child2("piyo")];
-        let enum_struct: HashMap<String, Value> = hashmap! {
-            "Struct".into() => Value::child1(6),
-        };
+        let enum_struct: HashMap<String, Value> =
+            HashMap::from_iter(vec![("Struct".into(), Value::child1(6))]);
         let enum_tuple_value = Value::array(vec![Value::string("fuga"), Value::child1(7)]);
-        let enum_tuple: HashMap<String, Value> = hashmap! {
-            "Tuple".into() => enum_tuple_value,
-        };
-        let fields: HashMap<String, Value> = hashmap! {
-            "s".into() => Value::string("hoge"),
-            "uint".into() => Value::integer(24),
-            "int".into() => Value::integer(-24),
-            "b".into() => Value::new(ValueType::BooleanValue(true)),
-            "float".into() => Value::double(0.1),
-            "c".into() => Value::string("x"),
-            "bytes".into() => Value::new(ValueType::BytesValue(bytes)),
-            "option_some".into() => Value::integer(10),
-            "option_none".into() => Value::new(ValueType::NullValue(0)),
-            "unit".into() => Value::new(ValueType::NullValue(0)),
-            "child".into() => Value::child1(2),
-            "geo".into() => Value::map(geo),
-            "map".into() => Value::map(map),
-            "int_vec".into() => Value::array((1..=3).map(|i| Value::integer(i)).collect()),
-            "child_array".into() => Value::array(child_vec),
-            "child_tuple".into() => Value::array(child_tuple),
-            "enum_unit".into() => Value::string("Unit"),
-            "enum_struct".into() => Value::map(enum_struct),
-            "enum_tuple".into() => Value::map(enum_tuple),
-        };
+        let enum_tuple: HashMap<String, Value> =
+            HashMap::from_iter(vec![("Tuple".into(), enum_tuple_value)]);
+        let fields: HashMap<String, Value> = HashMap::from_iter(vec![
+            ("s".into(), Value::string("hoge")),
+            ("uint".into(), Value::integer(24)),
+            ("int".into(), Value::integer(-24)),
+            ("b".into(), Value::new(ValueType::BooleanValue(true))),
+            ("float".into(), Value::double(0.1)),
+            ("c".into(), Value::string("x")),
+            ("bytes".into(), Value::new(ValueType::BytesValue(bytes))),
+            ("option_some".into(), Value::integer(10)),
+            ("option_none".into(), Value::new(ValueType::NullValue(0))),
+            ("unit".into(), Value::new(ValueType::NullValue(0))),
+            ("child".into(), Value::child1(2)),
+            ("geo".into(), Value::map(geo)),
+            ("map".into(), Value::map(map)),
+            ("time".into(), Value::timestamp(1609200000, 100000000)),
+            ("i_time".into(), Value::timestamp(1609200001, 100000001)),
+            ("int_vec".into(), Value::array(int_vec)),
+            ("child_array".into(), Value::array(child_vec)),
+            ("child_tuple".into(), Value::array(child_tuple)),
+            ("enum_unit".into(), Value::string("Unit")),
+            ("enum_struct".into(), Value::map(enum_struct)),
+            ("enum_tuple".into(), Value::map(enum_tuple)),
+        ]);
 
         let test: Test = from_fields(fields).unwrap();
         let expected = Test {
@@ -837,8 +857,13 @@ mod tests {
             option_empty: None,
             unit: (),
             child: Child1 { value: 2 },
-            geo: hashmap! { "latitude".into() => 35.6, "longitude".into() => 139.7 },
-            map: hashmap! { "x".into() => 8, "y".into() => 9 },
+            geo: HashMap::from_iter(vec![("latitude".into(), 35.6), ("longitude".into(), 139.7)]),
+            map: HashMap::from_iter(vec![("x".into(), 8), ("y".into(), 9)]),
+            time: HashMap::from_iter(vec![
+                ("seconds".into(), 1609200000),
+                ("nanos".into(), 100000000),
+            ]),
+            i_time: 1609200001,
             int_vec: vec![1, 2, 3],
             child_array: [
                 Child1 { value: 2 },
