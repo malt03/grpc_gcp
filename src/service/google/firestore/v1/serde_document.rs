@@ -180,12 +180,11 @@ impl Deserializer {
 
     fn get_bool(&mut self) -> Result<bool> {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                if let ValueType::BooleanValue(value) = value_type {
-                    return Ok(*value);
-                }
+            if let ValueType::BooleanValue(value) = value.value_type.unwrap() {
+                Ok(value)
+            } else {
+                Err(Error::ExpectedBoolean)
             }
-            Err(Error::ExpectedBoolean)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -195,12 +194,11 @@ impl Deserializer {
         match self.pop()? {
             BundleElement::Key(key) => Ok(key.clone()),
             BundleElement::Value(value) => {
-                if let Some(ref value_type) = value.value_type {
-                    if let ValueType::StringValue(value) = value_type {
-                        return Ok(value.clone());
-                    }
+                if let ValueType::StringValue(value) = value.value_type.unwrap() {
+                    Ok(value.clone())
+                } else {
+                    Err(Error::ExpectedString)
                 }
-                Err(Error::ExpectedString)
             }
             BundleElement::EndOfBundle => {
                 return Err(Error::ExpectedString);
@@ -213,16 +211,16 @@ impl Deserializer {
         T: TryFrom<u64>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                if let ValueType::IntegerValue(value) = value_type {
-                    let min = u64::min_value() as i64;
-                    if *value < min {
-                        return Err(Error::CouldNotConvertNumber);
-                    }
-                    return T::try_from(*value as u64).or(Err(Error::CouldNotConvertNumber));
+            if let ValueType::IntegerValue(value) = value.value_type.unwrap() {
+                let min = u64::min_value() as i64;
+                if value < min {
+                    Err(Error::CouldNotConvertNumber)
+                } else {
+                    T::try_from(value as u64).or(Err(Error::CouldNotConvertNumber))
                 }
+            } else {
+                Err(Error::ExpectedInteger)
             }
-            Err(Error::ExpectedInteger)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -233,10 +231,8 @@ impl Deserializer {
         T: TryFrom<i64>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                if let ValueType::IntegerValue(value) = value_type {
-                    return T::try_from(*value).or(Err(Error::CouldNotConvertNumber));
-                }
+            if let ValueType::IntegerValue(value) = value.value_type.unwrap() {
+                return T::try_from(value).or(Err(Error::CouldNotConvertNumber));
             }
             Err(Error::ExpectedInteger)
         } else {
@@ -246,12 +242,11 @@ impl Deserializer {
 
     fn get_f64(&mut self) -> Result<f64> {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                if let ValueType::DoubleValue(value) = value_type {
-                    return Ok(*value);
-                }
+            if let ValueType::DoubleValue(value) = value.value_type.unwrap() {
+                Ok(value)
+            } else {
+                Err(Error::ExpectedInteger)
             }
-            Err(Error::ExpectedInteger)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -287,14 +282,11 @@ impl Deserializer {
 
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                return match value_type {
-                    ValueType::BytesValue(value) => Ok(value.clone()),
-                    ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
-                    _ => Err(Error::ExpectedBytes),
-                };
+            match value.value_type.unwrap() {
+                ValueType::BytesValue(value) => Ok(value.clone()),
+                ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
+                _ => Err(Error::ExpectedBytes),
             }
-            Err(Error::ExpectedBytes)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -437,10 +429,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     {
         {
             if let PeekedFieldElement::Value(value) = self.peek()? {
-                if let Some(ref value_type) = value.value_type {
-                    if value_type.is_some_value() {
-                        return visitor.visit_some(self);
-                    }
+                if value.value_type.as_ref().unwrap().is_some_value() {
+                    return visitor.visit_some(self);
                 }
             } else {
                 return Err(Error::ExpectedValue);
@@ -456,12 +446,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(ref value_type) = value.value_type {
-                if let ValueType::NullValue(_) = value_type {
-                    return visitor.visit_unit();
-                }
+            if let ValueType::NullValue(_) = value.value_type.unwrap() {
+                visitor.visit_unit()
+            } else {
+                Err(Error::ExpectedNull)
             }
-            return Err(Error::ExpectedNull);
         } else {
             Err(Error::ExpectedValue)
         }
@@ -486,22 +475,21 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         if let BundleElement::Value(value) = self.pop()? {
-            if let Some(value_type) = value.value_type {
-                if let ValueType::ArrayValue(array_value) = value_type {
-                    let iter: Box<dyn Iterator<Item = Value>> =
-                        Box::new(array_value.values.into_iter());
-                    let bundle = DeserializerBundle::Array(iter.peekable());
-                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                    self.bundle_stack.push(replaced);
-                    let result = visitor.visit_seq(Entries::new(&mut self))?;
-                    if let BundleElement::EndOfBundle = self.pop()? {
-                        return Ok(result);
-                    } else {
-                        return Err(Error::ExpectedArrayEnd);
-                    }
+            if let ValueType::ArrayValue(array_value) = value.value_type.unwrap() {
+                let iter: Box<dyn Iterator<Item = Value>> =
+                    Box::new(array_value.values.into_iter());
+                let bundle = DeserializerBundle::Array(iter.peekable());
+                let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                self.bundle_stack.push(replaced);
+                let result = visitor.visit_seq(Entries::new(&mut self))?;
+                if let BundleElement::EndOfBundle = self.pop()? {
+                    Ok(result)
+                } else {
+                    Err(Error::ExpectedArrayEnd)
                 }
+            } else {
+                Err(Error::ExpectedArray)
             }
-            Err(Error::ExpectedArray)
         } else {
             Err(Error::ExpectedValue)
         }
@@ -567,26 +555,25 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         if let PeekedFieldElement::Value(value) = self.peek()? {
-            if let Some(ref value_type) = value.value_type {
-                return match value_type {
-                    ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
-                    ValueType::MapValue(_) => {
-                        let map = self.pop()?.value()?.map_value()?;
-                        let bundle = DeserializerBundle::map(map);
-                        let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                        self.bundle_stack.push(replaced);
-                        let result = visitor.visit_enum(Enum::new(self))?;
-                        if let BundleElement::EndOfBundle = self.pop()? {
-                            return Ok(result);
-                        } else {
-                            return Err(Error::ExpectedMapEnd);
-                        }
+            match value.value_type.as_ref().unwrap() {
+                ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
+                ValueType::MapValue(_) => {
+                    let map = self.pop()?.value()?.map_value()?;
+                    let bundle = DeserializerBundle::map(map);
+                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                    self.bundle_stack.push(replaced);
+                    let result = visitor.visit_enum(Enum::new(self))?;
+                    if let BundleElement::EndOfBundle = self.pop()? {
+                        Ok(result)
+                    } else {
+                        Err(Error::ExpectedMapEnd)
                     }
-                    _ => Err(Error::ExpectedEnum),
-                };
+                }
+                _ => Err(Error::ExpectedEnum),
             }
+        } else {
+            Err(Error::ExpectedValue)
         }
-        return Err(Error::ExpectedValue);
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
