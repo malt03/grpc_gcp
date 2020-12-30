@@ -1,3 +1,4 @@
 /target
 /.vscode
 key.json
+/out/tarpaulin-report.html

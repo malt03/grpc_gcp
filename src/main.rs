@@ -1,7 +1,7 @@
-use std::convert::TryFrom;
+// use std::convert::TryFrom;
 
-use grpc_gcp::firestore::v1::serde_document;
-use serde::Deserialize;
+// use grpc_gcp::firestore::v1::serde_document;
+// use serde::Deserialize;
 
 // #[tokio::main]
 // async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,13 +24,6 @@ use serde::Deserialize;
 //     Ok(())
 // }
 
-#[derive(Deserialize, Debug)]
-struct Person {
-    age: String,
-    name: String,
-}
-
 fn main() {
-    let f: f64 = 0.1;
-    let ff: f32 = f;
+    println!("Ok");
 }

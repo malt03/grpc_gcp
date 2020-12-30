@@ -260,7 +260,7 @@ impl Deserializer {
             if let ValueType::DoubleValue(value) = value.value_type.unwrap() {
                 Ok(value)
             } else {
-                Err(Error::ExpectedInteger)
+                Err(Error::ExpectedDouble)
             }
         } else {
             Err(Error::ExpectedValue)
@@ -719,6 +719,15 @@ mod tests {
             Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
         }
 
+        fn geopoint(latitude: f64, longitude: f64) -> Self {
+            Value::new(ValueType::GeoPointValue(
+                crate::proto::google::r#type::LatLng {
+                    latitude: latitude,
+                    longitude: longitude,
+                },
+            ))
+        }
+
         fn timestamp(seconds: i64, nanos: i32) -> Self {
             Value::new(ValueType::TimestampValue(Timestamp {
                 seconds: seconds,
@@ -770,6 +779,7 @@ mod tests {
             geo: HashMap<String, f64>,
             time: HashMap<String, i64>,
             i_time: i64,
+            u_time: i64,
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
@@ -800,10 +810,6 @@ mod tests {
             ("x".into(), Value::integer(8)),
             ("y".into(), Value::integer(9)),
         ]);
-        let geo = HashMap::from_iter(vec![
-            ("latitude".into(), Value::double(35.6)),
-            ("longitude".into(), Value::double(139.7)),
-        ]);
         let int_vec: Vec<_> = (1..=3).map(|i| Value::integer(i)).collect();
         let child_vec: Vec<_> = (2..=4)
             .map(|i| {
@@ -831,10 +837,11 @@ mod tests {
             ("option_none".into(), Value::new(ValueType::NullValue(0))),
             ("unit".into(), Value::new(ValueType::NullValue(0))),
             ("child".into(), Value::child1(2)),
-            ("geo".into(), Value::map(geo)),
+            ("geo".into(), Value::geopoint(35.6, 139.7)),
             ("map".into(), Value::map(map)),
             ("time".into(), Value::timestamp(1609200000, 100000000)),
             ("i_time".into(), Value::timestamp(1609200001, 100000001)),
+            ("u_time".into(), Value::timestamp(1609200002, 100000002)),
             ("int_vec".into(), Value::array(int_vec)),
             ("child_array".into(), Value::array(child_vec)),
             ("child_tuple".into(), Value::array(child_tuple)),
@@ -864,6 +871,7 @@ mod tests {
                 ("nanos".into(), 100000000),
             ]),
             i_time: 1609200001,
+            u_time: 1609200002,
             int_vec: vec![1, 2, 3],
             child_array: [
                 Child1 { value: 2 },
