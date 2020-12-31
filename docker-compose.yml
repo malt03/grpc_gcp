@@ -1,12 +1,10 @@
 version: '3'
-volumes:
-  ignore:
-services: 
+services:
   coverage:
     build: .
     image: grpc-gcp-coverage
-    volumes: 
-      - .:/usr/src/grpc_gcp
-      - ignore:/usr/src/grpc_gcp/target
+    volumes:
+      - ./src:/grpc_gcp/src:delegated
+      - ./out:/out:cached
     security_opt: 
       - seccomp:unconfined
