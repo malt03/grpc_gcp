@@ -952,17 +952,24 @@ mod tests {
         assert_eq!(expected, test);
     }
 
+    #[derive(Deserialize, Debug)]
+    struct ErrorTest<T> {
+        value: T,
+    }
+
     #[test]
     fn test_expected_map() {
-        #[derive(Deserialize, Debug)]
-        struct Test {
-            map: HashMap<String, i64>,
-        }
-
         let fields: HashMap<String, Value> =
-            HashMap::from_iter(vec![("map".into(), Value::string("hoge"))]);
-
-        let error = from_fields::<Test>(fields).unwrap_err();
+            HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
+        let error = from_fields::<ErrorTest<HashMap<String, i64>>>(fields).unwrap_err();
         assert_eq!(Error::ExpectedMap, error);
+    }
+
+    #[test]
+    fn test_expected_bool() {
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
+        let error = from_fields::<ErrorTest<bool>>(fields).unwrap_err();
+        assert_eq!(Error::ExpectedBoolean, error);
     }
 }
