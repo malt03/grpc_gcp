@@ -717,7 +717,7 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::from_fields;
+    use super::{from_fields, Error};
     use crate::proto::google::firestore::v1::{value::ValueType, ArrayValue, MapValue, Value};
     use prost_types::Timestamp;
     use serde::Deserialize;
@@ -950,5 +950,19 @@ mod tests {
             enum_struct: E::Struct { value: 0.3 },
         };
         assert_eq!(expected, test);
+    }
+
+    #[test]
+    fn test_expected_map() {
+        #[derive(Deserialize, Debug)]
+        struct Test {
+            map: HashMap<String, i64>,
+        }
+
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("map".into(), Value::string("hoge"))]);
+
+        let error = from_fields::<Test>(fields).unwrap_err();
+        assert_eq!(Error::ExpectedMap, error);
     }
 }
