@@ -947,7 +947,7 @@ mod tests {
             enum_unit: E::Unit,
             enum_newtype: E::NewType(Child1 { value: 6 }),
             enum_tuple: E::Tuple("fuga".into(), Child1 { value: 7 }),
-            enum_struct: E::Struct { value: 0.2 },
+            enum_struct: E::Struct { value: 0.3 },
         };
         assert_eq!(expected, test);
     }
