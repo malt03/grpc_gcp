@@ -299,7 +299,6 @@ impl Deserializer {
         if let BundleElement::Value(value) = self.pop()? {
             match value.value_type.unwrap() {
                 ValueType::BytesValue(value) => Ok(value.clone()),
-                ValueType::StringValue(value) => Ok(value.clone().into_bytes()),
                 _ => Err(Error::ExpectedBytes),
             }
         } else {
@@ -763,8 +762,14 @@ mod tests {
         #[derive(Deserialize, PartialEq, Debug)]
         struct Test {
             s: String,
-            uint: u64,
-            int: i64,
+            u_8: u8,
+            u_16: u16,
+            u_32: u32,
+            u_64: u64,
+            i_8: i8,
+            i_16: i16,
+            i_32: i32,
+            i_64: i64,
             b: bool,
             float: f32,
             c: char,
@@ -827,8 +832,14 @@ mod tests {
             HashMap::from_iter(vec![("Tuple".into(), enum_tuple_value)]);
         let fields: HashMap<String, Value> = HashMap::from_iter(vec![
             ("s".into(), Value::string("hoge")),
-            ("uint".into(), Value::integer(24)),
-            ("int".into(), Value::integer(-24)),
+            ("u_8".into(), Value::integer(8)),
+            ("u_16".into(), Value::integer(16)),
+            ("u_32".into(), Value::integer(32)),
+            ("u_64".into(), Value::integer(64)),
+            ("i_8".into(), Value::integer(-8)),
+            ("i_16".into(), Value::integer(-16)),
+            ("i_32".into(), Value::integer(-32)),
+            ("i_64".into(), Value::integer(-64)),
             ("b".into(), Value::new(ValueType::BooleanValue(true))),
             ("float".into(), Value::double(0.1)),
             ("c".into(), Value::string("x")),
@@ -853,8 +864,14 @@ mod tests {
         let test: Test = from_fields(fields).unwrap();
         let expected = Test {
             s: "hoge".into(),
-            uint: 24,
-            int: -24,
+            u_8: 8,
+            u_16: 16,
+            u_32: 32,
+            u_64: 64,
+            i_8: -8,
+            i_16: -16,
+            i_32: -32,
+            i_64: -64,
             b: true,
             float: 0.1,
             c: 'x',
