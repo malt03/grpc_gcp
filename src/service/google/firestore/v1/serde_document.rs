@@ -310,19 +310,29 @@ impl Deserializer {
 impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     type Error = Error;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        // match self.peek()? {
+        // let hoge = match self.peek()? {
         //     PeekedFieldElement::Key(_) => self.deserialize_str(visitor),
-        //     PeekedFieldElement::Value(value) => {
-        //         match value.value_type.unwrap() {
-        //             Valu
-        //         }
-        //     }
-        // }
-        self.deserialize_map(visitor)
+        //     PeekedFieldElement::Value(value) => match value.value_type.as_ref().unwrap() {
+        //         ValueType::NullValue(_) => self.deserialize_unit(visitor),
+        //         ValueType::BooleanValue(_) => self.deserialize_bool(visitor),
+        //         ValueType::IntegerValue(_) => self.deserialize_i64(visitor),
+        //         ValueType::DoubleValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::TimestampValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::StringValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::BytesValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::ReferenceValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::GeoPointValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::ArrayValue(_) => Err(Error::ExpectedValue),
+        //         ValueType::MapValue(_) => Err(Error::ExpectedValue),
+        //     },
+        //     PeekedFieldElement::EndOfBundle => Err(Error::ExpectedValue),
+        // };
+        // hoge
+        todo!()
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
@@ -779,6 +789,9 @@ mod tests {
             option_none: Option<i64>,
             option_empty: Option<i64>,
             unit: (),
+            unit_struct: Unit,
+            newtype: NewType,
+            tuple: Tuple,
             child: Child1,
             map: HashMap<String, i32>,
             geo: HashMap<String, f64>,
@@ -804,13 +817,23 @@ mod tests {
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
+        struct NewType(Child1);
+
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Tuple(String, Child1);
+
+        #[derive(Deserialize, PartialEq, Debug)]
         enum E {
             Unit,
             Struct(Child1),
             Tuple(String, Child1),
         }
 
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Unit;
+
         let bytes: Vec<u8> = vec![0, 1, 2];
+        let tuple = vec![Value::string("aaa"), Value::child1(9)];
         let map = HashMap::from_iter(vec![
             ("x".into(), Value::integer(8)),
             ("y".into(), Value::integer(9)),
@@ -847,6 +870,9 @@ mod tests {
             ("option_some".into(), Value::integer(10)),
             ("option_none".into(), Value::new(ValueType::NullValue(0))),
             ("unit".into(), Value::new(ValueType::NullValue(0))),
+            ("unit_struct".into(), Value::new(ValueType::NullValue(0))),
+            ("newtype".into(), Value::child1(8)),
+            ("tuple".into(), Value::array(tuple)),
             ("child".into(), Value::child1(2)),
             ("geo".into(), Value::geopoint(35.6, 139.7)),
             ("map".into(), Value::map(map)),
@@ -880,6 +906,9 @@ mod tests {
             option_none: None,
             option_empty: None,
             unit: (),
+            unit_struct: Unit,
+            newtype: NewType(Child1 { value: 8 }),
+            tuple: Tuple("aaa".into(), Child1 { value: 9 }),
             child: Child1 { value: 2 },
             geo: HashMap::from_iter(vec![("latitude".into(), 35.6), ("longitude".into(), 139.7)]),
             map: HashMap::from_iter(vec![("x".into(), 8), ("y".into(), 9)]),
