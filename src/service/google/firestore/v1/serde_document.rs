@@ -779,7 +779,7 @@ mod tests {
             geo: HashMap<String, f64>,
             time: HashMap<String, i64>,
             i_time: i64,
-            u_time: i64,
+            u_time: u64,
             int_vec: Vec<i64>,
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
