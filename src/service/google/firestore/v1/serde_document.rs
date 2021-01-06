@@ -802,8 +802,9 @@ mod tests {
             child_array: [Child1; 3],
             child_tuple: (Child1, Child2),
             enum_unit: E,
-            enum_struct: E,
+            enum_newtype: E,
             enum_tuple: E,
+            enum_struct: E,
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
@@ -825,8 +826,9 @@ mod tests {
         #[derive(Deserialize, PartialEq, Debug)]
         enum E {
             Unit,
-            Struct(Child1),
+            NewType(Child1),
             Tuple(String, Child1),
+            Struct { value: f64 },
         }
 
         #[derive(Deserialize, PartialEq, Debug)]
@@ -848,11 +850,19 @@ mod tests {
             })
             .collect();
         let child_tuple: Vec<_> = vec![Value::child1(5), Value::child2("piyo")];
-        let enum_struct: HashMap<String, Value> =
-            HashMap::from_iter(vec![("Struct".into(), Value::child1(6))]);
-        let enum_tuple_value = Value::array(vec![Value::string("fuga"), Value::child1(7)]);
-        let enum_tuple: HashMap<String, Value> =
-            HashMap::from_iter(vec![("Tuple".into(), enum_tuple_value)]);
+        let enum_newtype: HashMap<String, Value> =
+            HashMap::from_iter(vec![("NewType".into(), Value::child1(6))]);
+        let enum_tuple: HashMap<String, Value> = HashMap::from_iter(vec![(
+            "Tuple".into(),
+            Value::array(vec![Value::string("fuga"), Value::child1(7)]),
+        )]);
+        let enum_struct: HashMap<String, Value> = HashMap::from_iter(vec![(
+            "Struct".into(),
+            Value::map(HashMap::from_iter(vec![(
+                "value".into(),
+                Value::double(0.2),
+            )])),
+        )]);
         let fields: HashMap<String, Value> = HashMap::from_iter(vec![
             ("s".into(), Value::string("hoge")),
             ("u_8".into(), Value::integer(8)),
@@ -883,8 +893,9 @@ mod tests {
             ("child_array".into(), Value::array(child_vec)),
             ("child_tuple".into(), Value::array(child_tuple)),
             ("enum_unit".into(), Value::string("Unit")),
-            ("enum_struct".into(), Value::map(enum_struct)),
+            ("enum_newtype".into(), Value::map(enum_newtype)),
             ("enum_tuple".into(), Value::map(enum_tuple)),
+            ("enum_struct".into(), Value::map(enum_struct)),
         ]);
 
         let test: Test = from_fields(fields).unwrap();
@@ -931,8 +942,9 @@ mod tests {
                 },
             ),
             enum_unit: E::Unit,
-            enum_struct: E::Struct(Child1 { value: 6 }),
+            enum_newtype: E::NewType(Child1 { value: 6 }),
             enum_tuple: E::Tuple("fuga".into(), Child1 { value: 7 }),
+            enum_struct: E::Struct { value: 0.2 },
         };
         assert_eq!(expected, test);
     }
