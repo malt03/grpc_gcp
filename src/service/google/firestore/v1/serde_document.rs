@@ -781,7 +781,8 @@ mod tests {
             i_32: i32,
             i_64: i64,
             b: bool,
-            float: f32,
+            f_32: f32,
+            f_64: f64,
             c: char,
             #[serde(with = "serde_bytes")]
             bytes: Vec<u8>,
@@ -860,7 +861,7 @@ mod tests {
             "Struct".into(),
             Value::map(HashMap::from_iter(vec![(
                 "value".into(),
-                Value::double(0.2),
+                Value::double(0.3),
             )])),
         )]);
         let fields: HashMap<String, Value> = HashMap::from_iter(vec![
@@ -874,7 +875,8 @@ mod tests {
             ("i_32".into(), Value::integer(-32)),
             ("i_64".into(), Value::integer(-64)),
             ("b".into(), Value::new(ValueType::BooleanValue(true))),
-            ("float".into(), Value::double(0.1)),
+            ("f_32".into(), Value::double(0.1)),
+            ("f_64".into(), Value::double(0.2)),
             ("c".into(), Value::string("x")),
             ("bytes".into(), Value::new(ValueType::BytesValue(bytes))),
             ("option_some".into(), Value::integer(10)),
@@ -910,7 +912,8 @@ mod tests {
             i_32: -32,
             i_64: -64,
             b: true,
-            float: 0.1,
+            f_32: 0.1,
+            f_64: 0.2,
             c: 'x',
             bytes: vec![0, 1, 2],
             option_some: Some(10),
