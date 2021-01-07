@@ -1,3 +1,4 @@
+pub(crate) mod datastore;
 pub(crate) mod firestore;
 pub(crate) mod pubsub;
 pub(crate) mod rpc {
