@@ -1,6 +1,7 @@
 mod error;
 
 use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
+use core::panic;
 use de::SeqAccess;
 pub use error::{Error, Result};
 use serde::{
@@ -88,11 +89,11 @@ enum PeekedFieldElement<'a> {
 }
 
 impl BundleElement {
-    fn value(self) -> Result<Value> {
+    fn value(self) -> Value {
         if let BundleElement::Value(value) = self {
-            Ok(value)
+            value
         } else {
-            Err(Error::ExpectedValue)
+            common_panic!()
         }
     }
 }
@@ -191,14 +192,10 @@ impl Deserializer {
     }
 
     fn get_bool(&mut self) -> Result<bool> {
-        if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::BooleanValue(value) = value.value_type.unwrap() {
-                Ok(value)
-            } else {
-                Err(Error::ExpectedBoolean)
-            }
+        if let ValueType::BooleanValue(value) = self.pop()?.value().value_type.unwrap() {
+            Ok(value)
         } else {
-            Err(Error::ExpectedValue)
+            Err(Error::ExpectedBoolean)
         }
     }
 
@@ -212,9 +209,7 @@ impl Deserializer {
                     Err(Error::ExpectedString)
                 }
             }
-            BundleElement::EndOfBundle => {
-                return Err(Error::ExpectedString);
-            }
+            BundleElement::EndOfBundle => common_panic!(),
         }
     }
 
@@ -582,7 +577,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
             match value.value_type.as_ref().unwrap() {
                 ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
                 ValueType::MapValue(_) => {
-                    let map = self.pop()?.value()?.map_value()?;
+                    let map = self.pop()?.value().map_value()?;
                     let bundle = DeserializerBundle::map(map);
                     let replaced = mem::replace(&mut self.processing_bundle, bundle);
                     self.bundle_stack.push(replaced);
@@ -958,18 +953,32 @@ mod tests {
     }
 
     #[test]
-    fn test_expected_map() {
+    fn test_expected_value() {
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
-        let error = from_fields::<ErrorTest<HashMap<String, i64>>>(fields).unwrap_err();
-        assert_eq!(Error::ExpectedMap, error);
+        assert_eq!(
+            Error::ExpectedMap,
+            from_fields::<ErrorTest<HashMap<String, i64>>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedBoolean,
+            from_fields::<ErrorTest<bool>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedInteger,
+            from_fields::<ErrorTest<u64>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedInteger,
+            from_fields::<ErrorTest<i64>>(fields.clone()).unwrap_err()
+        );
     }
 
     #[test]
-    fn test_expected_bool() {
+    fn test_expected_string() {
         let fields: HashMap<String, Value> =
-            HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
-        let error = from_fields::<ErrorTest<bool>>(fields).unwrap_err();
-        assert_eq!(Error::ExpectedBoolean, error);
+            HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
+        let error = from_fields::<ErrorTest<String>>(fields).unwrap_err();
+        assert_eq!(Error::ExpectedString, error);
     }
 }

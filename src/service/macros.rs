@@ -33,3 +33,9 @@ macro_rules! define_client {
         )*
     };
 }
+
+macro_rules! common_panic {
+    () => {
+        panic!("An unexpected error has occured! Please report to issue. https://github.com/malt03/grpc_gcp/issues")
+    }
+}
