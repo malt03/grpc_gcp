@@ -1,46 +1,30 @@
+use super::TraceKey;
+use fmt::Debug;
+use serde::{de, ser};
 use std;
 use std::fmt::{self, Display};
-
-use serde::{de, ser};
-
 pub type Result<T> = std::result::Result<T, Error>;
+use crate::proto::google::firestore::v1::Value;
 
-// This is a bare-bones implementation. A real library would provide additional
-// information in its error type, for example the line and column at which the
-// error occurred, the byte offset into the input, or the current key being
-// processed.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Error {
-    // One or more variants that can be created by data structures through the
-    // `ser::Error` and `de::Error` traits. For example the Serialize impl for
-    // Mutex<T> might return an error because the mutex is poisoned, or the
-    // Deserialize impl for a struct may return an error because a required
-    // field is missing.
     Message(String),
 
-    // Zero or more variants that can be created directly by the Serializer and
-    // Deserializer without going through `ser::Error` and `de::Error`. These
-    // are specific to the format, in this case JSON.
     Eof,
-    Syntax,
-    ExpectedBoolean,
-    ExpectedInteger,
-    ExpectedDouble,
-    ExpectedString,
-    ExpectedChar,
-    ExpectedBytes,
-    ExpectedNull,
-    ExpectedArray,
-    ExpectedArrayComma,
-    ExpectedArrayEnd,
-    ExpectedMap,
-    ExpectedMapColon,
-    ExpectedMapComma,
-    ExpectedMapEnd,
-    ExpectedEnum,
-    ExpectedValue,
-    TrailingCharacters,
-    CouldNotConvertNumber,
+
+    ExpectedBoolean(TraceKey, Value),
+    ExpectedInteger(TraceKey, Value),
+    ExpectedDouble(TraceKey, Value),
+    ExpectedString(TraceKey, Value),
+    ExpectedChar(TraceKey, Value),
+    ExpectedBytes(TraceKey, Value),
+    ExpectedNull(TraceKey, Value),
+    ExpectedArray(TraceKey, Value),
+    ExpectedMap(TraceKey, Value),
+    ExpectedEnum(TraceKey, Value),
+    CouldNotConvertNumber(TraceKey, Value),
+    ExpectedArrayEnd(TraceKey),
+    ExpectedMapEnd(TraceKey),
 }
 
 impl ser::Error for Error {
@@ -55,32 +39,74 @@ impl de::Error for Error {
     }
 }
 
-impl Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+impl Error {
+    fn to_string(&self) -> String {
         match self {
-            Error::Message(msg) => formatter.write_str(msg),
-            Error::Eof => formatter.write_str("unexpected end of input"),
-            /* and so forth */
-            Error::Syntax => formatter.write_str("Syntax"),
-            Error::ExpectedBoolean => formatter.write_str("ExpectedBoolean"),
-            Error::ExpectedInteger => formatter.write_str("ExpectedInteger"),
-            Error::ExpectedDouble => formatter.write_str("ExpectedDouble"),
-            Error::ExpectedString => formatter.write_str("ExpectedString"),
-            Error::ExpectedChar => formatter.write_str("ExpectedChar"),
-            Error::ExpectedBytes => formatter.write_str("ExpectedBytes"),
-            Error::ExpectedNull => formatter.write_str("ExpectedNull"),
-            Error::ExpectedArray => formatter.write_str("ExpectedArray"),
-            Error::ExpectedArrayComma => formatter.write_str("ExpectedArrayComma"),
-            Error::ExpectedArrayEnd => formatter.write_str("ExpectedArrayEnd"),
-            Error::ExpectedMap => formatter.write_str("ExpectedMap"),
-            Error::ExpectedMapColon => formatter.write_str("ExpectedMapColon"),
-            Error::ExpectedMapComma => formatter.write_str("ExpectedMapComma"),
-            Error::ExpectedMapEnd => formatter.write_str("ExpectedMapEnd"),
-            Error::ExpectedEnum => formatter.write_str("ExpectedEnum"),
-            Error::ExpectedValue => formatter.write_str("ExpectedValue"),
-            Error::TrailingCharacters => formatter.write_str("TrailingCharacters"),
-            Error::CouldNotConvertNumber => formatter.write_str("CouldNotConvertNumber,"),
+            Error::Message(msg) => msg.to_string(),
+            Error::Eof => "unexpected end of input".into(),
+
+            Error::ExpectedBoolean(key, value) => format!(
+                "A boolean value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedInteger(key, value) => format!(
+                "A integer value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedDouble(key, value) => format!(
+                "A double value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedString(key, value) => format!(
+                "A string value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedChar(key, value) => format!(
+                "A char value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedBytes(key, value) => format!(
+                "A bytes value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedNull(key, value) => format!(
+                "A null value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedArray(key, value) => format!(
+                "A array value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::ExpectedMap(key, value) => {
+                format!("A map value was expected for {}, but it was {}", key, value)
+            }
+            Error::ExpectedEnum(key, value) => format!(
+                "A enum value was expected for {}, but it was {}",
+                key, value
+            ),
+            Error::CouldNotConvertNumber(key, value) => format!(
+                "Could not convert {}, the value of {}, to the expected type.",
+                value, key
+            ),
+            Error::ExpectedArrayEnd(key) => {
+                format!("The length of the array is invalid. key: {}", key)
+            }
+            Error::ExpectedMapEnd(key) => {
+                format!("The length of the map is invalid. key: {}", key)
+            }
         }
+    }
+}
+
+impl Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string())
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string())
     }
 }
 

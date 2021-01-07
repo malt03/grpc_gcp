@@ -1,6 +1,6 @@
 mod error;
 
-use crate::proto::google::firestore::v1::{value::ValueType, MapValue, Value};
+use crate::proto::google::firestore::v1::{value::ValueType, Value};
 use core::panic;
 use de::SeqAccess;
 pub use error::{Error, Result};
@@ -8,7 +8,7 @@ use serde::{
     de::{self, DeserializeSeed, EnumAccess, MapAccess, VariantAccess, Visitor},
     Deserialize,
 };
-use std::{collections::HashMap, convert::TryFrom, iter::FromIterator, iter::Peekable, mem};
+use std::{collections::HashMap, convert::TryFrom, fmt::Display, iter::Peekable, mem};
 
 impl ValueType {
     fn is_some_value(&self) -> bool {
@@ -36,34 +36,60 @@ impl Deserializer {
 
 enum DeserializerBundle {
     Map(MapDeserializerBundle),
-    Array(Peekable<Box<dyn Iterator<Item = Value>>>),
+    Array(ArrayDeserializerBundle),
 }
 
-struct MapDeserializerBundle {
-    entries: Peekable<Box<dyn Iterator<Item = (String, Value)>>>,
-    poped_value: Option<Value>,
+#[derive(Clone, PartialEq)]
+pub enum TraceKey {
+    Root,
+    Map(String, Box<TraceKey>),
+    Array(Box<TraceKey>),
 }
 
-impl Value {
-    fn from_fields(input: HashMap<String, Value>) -> Self {
-        Value {
-            value_type: Some(ValueType::MapValue(MapValue { fields: input })),
+impl Display for TraceKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TraceKey::Root => write!(f, ""),
+            TraceKey::Map(key, parent) => write!(f, "{}/{}", parent, key),
+            TraceKey::Array(parent) => write!(f, "{}[]", parent),
         }
     }
 }
 
+struct KeyValueSet(TraceKey, Value);
+
+struct MapDeserializerBundle {
+    key: TraceKey,
+    entries: Peekable<Box<dyn Iterator<Item = (String, Value)>>>,
+    poped_value: Option<KeyValueSet>,
+}
+
+struct ArrayDeserializerBundle {
+    key: TraceKey,
+    values: Peekable<Box<dyn Iterator<Item = Value>>>,
+}
+
 impl DeserializerBundle {
-    fn map(input: HashMap<String, Value>) -> Self {
+    fn map(key: &TraceKey, input: HashMap<String, Value>) -> Self {
         DeserializerBundle::Map(MapDeserializerBundle {
+            key: key.clone(),
             entries: (Box::new(input.into_iter()) as Box<dyn Iterator<Item = _>>).peekable(),
             poped_value: None,
         })
     }
 
+    fn array(key: &TraceKey, input: Peekable<Box<dyn Iterator<Item = Value>>>) -> Self {
+        DeserializerBundle::Array(ArrayDeserializerBundle {
+            key: key.clone(),
+            values: input,
+        })
+    }
+
     fn root(input: HashMap<String, Value>) -> Self {
         DeserializerBundle::Map(MapDeserializerBundle {
+            key: TraceKey::Root,
             entries: (Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>).peekable(),
-            poped_value: Some(Value::from_fields(input)),
+            poped_value: Some(KeyValueSet(TraceKey::Root, Value::from_fields(input))),
         })
     }
 }
@@ -78,59 +104,32 @@ where
 
 enum BundleElement {
     Key(String),
-    Value(Value),
-    EndOfBundle,
-}
-
-enum PeekedFieldElement<'a> {
-    Key(&'a String),
-    Value(&'a Value),
+    Value(KeyValueSet),
     EndOfBundle,
 }
 
 impl BundleElement {
-    fn value(self) -> Value {
-        if let BundleElement::Value(value) = self {
-            value
+    fn key_value_set(self) -> KeyValueSet {
+        if let BundleElement::Value(key_value_set) = self {
+            key_value_set
         } else {
             common_panic!()
         }
     }
 }
 
-impl Value {
-    fn new(value_type: ValueType) -> Self {
-        Value {
-            value_type: Some(value_type),
-        }
-    }
+enum PeekedBundleElement<'a> {
+    Key(&'a String),
+    Value(&'a Value),
+    EndOfBundle,
+}
 
-    fn integer(value: i64) -> Self {
-        Value::new(ValueType::IntegerValue(value))
-    }
-
-    fn double(value: f64) -> Value {
-        Value::new(ValueType::DoubleValue(value))
-    }
-
-    fn map_value(self) -> Result<HashMap<String, Value>> {
-        match self.value_type.unwrap() {
-            ValueType::MapValue(value) => Ok(value.fields),
-            ValueType::GeoPointValue(value) => {
-                let map = HashMap::from_iter(vec![
-                    ("latitude".into(), Value::double(value.latitude)),
-                    ("longitude".into(), Value::double(value.longitude)),
-                ]);
-                Ok(map)
-            }
-            ValueType::TimestampValue(value) => {
-                let map = HashMap::from_iter(vec![
-                    ("seconds".into(), Value::integer(value.seconds)),
-                    ("nanos".into(), Value::integer(value.nanos.into())),
-                ]);
-                Ok(map)
-            }
-            _ => Err(Error::ExpectedMap),
+impl<'a> PeekedBundleElement<'a> {
+    fn value(self) -> &'a Value {
+        if let PeekedBundleElement::Value(value) = self {
+            value
+        } else {
+            common_panic!()
         }
     }
 }
@@ -155,58 +154,67 @@ impl Deserializer {
                     }
                     None => match bundle.entries.next() {
                         None => pop_bundle_stack(self),
-                        Some(entriy) => {
-                            bundle.poped_value = Some(entriy.1);
-                            Ok(BundleElement::Key(entriy.0))
+                        Some((key, value)) => {
+                            bundle.poped_value = Some(KeyValueSet(
+                                TraceKey::Map(key.clone(), Box::new(bundle.key.clone())),
+                                value,
+                            ));
+                            Ok(BundleElement::Key(key))
                         }
                     },
                 }
             }
-            DeserializerBundle::Array(ref mut bundle) => match bundle.next() {
+            DeserializerBundle::Array(ref mut bundle) => match bundle.values.next() {
                 None => pop_bundle_stack(self),
-                Some(value) => Ok(BundleElement::Value(value)),
+                Some(value) => {
+                    let set = KeyValueSet(TraceKey::Array(Box::new(bundle.key.clone())), value);
+                    Ok(BundleElement::Value(set))
+                }
             },
         }
     }
 
-    fn peek(&mut self) -> Result<PeekedFieldElement> {
-        fn peek_bundle_stack(bundle_stack: &Vec<DeserializerBundle>) -> Result<PeekedFieldElement> {
+    fn peek(&mut self) -> Result<PeekedBundleElement> {
+        fn peek_bundle_stack(
+            bundle_stack: &Vec<DeserializerBundle>,
+        ) -> Result<PeekedBundleElement> {
             match bundle_stack.last() {
                 None => Err(Error::Eof),
-                Some(_) => Ok(PeekedFieldElement::EndOfBundle),
+                Some(_) => Ok(PeekedBundleElement::EndOfBundle),
             }
         }
         match self.processing_bundle {
             DeserializerBundle::Map(ref mut bundle) => match bundle.poped_value {
-                Some(ref value) => Ok(PeekedFieldElement::Value(value)),
+                Some(KeyValueSet(_, ref value)) => Ok(PeekedBundleElement::Value(value)),
                 None => match bundle.entries.peek() {
                     None => peek_bundle_stack(&self.bundle_stack),
-                    Some(entriy) => Ok(PeekedFieldElement::Key(&entriy.0)),
+                    Some(entriy) => Ok(PeekedBundleElement::Key(&entriy.0)),
                 },
             },
-            DeserializerBundle::Array(ref mut bundle) => match bundle.peek() {
+            DeserializerBundle::Array(ref mut bundle) => match bundle.values.peek() {
                 None => peek_bundle_stack(&self.bundle_stack),
-                Some(value) => Ok(PeekedFieldElement::Value(value)),
+                Some(value) => Ok(PeekedBundleElement::Value(value)),
             },
         }
     }
 
     fn get_bool(&mut self) -> Result<bool> {
-        if let ValueType::BooleanValue(value) = self.pop()?.value().value_type.unwrap() {
-            Ok(value)
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        if let ValueType::BooleanValue(value) = value.value_type.as_ref().unwrap() {
+            Ok(*value)
         } else {
-            Err(Error::ExpectedBoolean)
+            Err(Error::ExpectedBoolean(key, value))
         }
     }
 
     fn get_string(&mut self) -> Result<String> {
         match self.pop()? {
             BundleElement::Key(key) => Ok(key.clone()),
-            BundleElement::Value(value) => {
-                if let ValueType::StringValue(value) = value.value_type.unwrap() {
+            BundleElement::Value(KeyValueSet(key, value)) => {
+                if let ValueType::StringValue(value) = value.value_type.as_ref().unwrap() {
                     Ok(value.clone())
                 } else {
-                    Err(Error::ExpectedString)
+                    Err(Error::ExpectedString(key, value))
                 }
             }
             BundleElement::EndOfBundle => common_panic!(),
@@ -217,20 +225,17 @@ impl Deserializer {
     where
         T: TryFrom<u64>,
     {
-        if let BundleElement::Value(value) = self.pop()? {
-            let value = match value.value_type.unwrap() {
-                ValueType::IntegerValue(value) => Ok(value),
-                ValueType::TimestampValue(value) => Ok(value.seconds),
-                _ => Err(Error::ExpectedInteger),
-            }?;
-            let min = u64::min_value() as i64;
-            if value < min {
-                Err(Error::CouldNotConvertNumber)
-            } else {
-                T::try_from(value as u64).or(Err(Error::CouldNotConvertNumber))
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        match value.integer_value() {
+            Some(i) => {
+                let min = u64::min_value() as i64;
+                if i >= min {
+                    T::try_from(i as u64).or(Err(Error::CouldNotConvertNumber(key, value)))
+                } else {
+                    Err(Error::CouldNotConvertNumber(key, value))
+                }
             }
-        } else {
-            Err(Error::ExpectedValue)
+            None => Err(Error::ExpectedInteger(key.clone(), value)),
         }
     }
 
@@ -238,66 +243,46 @@ impl Deserializer {
     where
         T: TryFrom<i64>,
     {
-        if let BundleElement::Value(value) = self.pop()? {
-            let value = match value.value_type.unwrap() {
-                ValueType::IntegerValue(value) => Ok(value),
-                ValueType::TimestampValue(value) => Ok(value.seconds),
-                _ => Err(Error::ExpectedInteger),
-            }?;
-            T::try_from(value).or(Err(Error::CouldNotConvertNumber))
-        } else {
-            Err(Error::ExpectedValue)
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        match value.integer_value() {
+            Some(i) => T::try_from(i).or(Err(Error::CouldNotConvertNumber(key, value))),
+            None => Err(Error::ExpectedInteger(key.clone(), value)),
         }
     }
 
     fn get_f64(&mut self) -> Result<f64> {
-        if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::DoubleValue(value) = value.value_type.unwrap() {
-                Ok(value)
-            } else {
-                Err(Error::ExpectedDouble)
-            }
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        if let ValueType::DoubleValue(value) = value.value_type.as_ref().unwrap() {
+            Ok(*value)
         } else {
-            Err(Error::ExpectedValue)
+            Err(Error::ExpectedDouble(key, value))
         }
     }
 
     fn get_f32(&mut self) -> Result<f32> {
-        let value = self.get_f64()?;
-        if value > f32::MAX as f64 && value < f32::MIN as f64 {
-            Err(Error::CouldNotConvertNumber)
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        if let ValueType::DoubleValue(f) = value.value_type.as_ref().unwrap() {
+            if *f > f32::MIN as f64 && *f < f32::MAX as f64 {
+                Ok(*f as f32)
+            } else {
+                Err(Error::CouldNotConvertNumber(key, value))
+            }
         } else {
-            Ok(value as f32)
+            Err(Error::ExpectedDouble(key, value))
         }
     }
 
     fn get_char(&mut self) -> Result<char> {
-        match self.get_string() {
-            Err(err) => {
-                return Err(if err == Error::ExpectedString {
-                    Error::ExpectedChar
-                } else {
-                    err
-                });
-            }
-            Ok(str) => {
-                if str.len() != 1 {
-                    Err(Error::ExpectedChar)
-                } else {
-                    Ok(str.chars().next().unwrap())
-                }
-            }
-        }
+        unimplemented!(
+            "Deserialization of char is not supported, please define it as string instead of char."
+        )
     }
 
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
-        if let BundleElement::Value(value) = self.pop()? {
-            match value.value_type.unwrap() {
-                ValueType::BytesValue(value) => Ok(value.clone()),
-                _ => Err(Error::ExpectedBytes),
-            }
-        } else {
-            Err(Error::ExpectedValue)
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        match value.value_type.as_ref().unwrap() {
+            ValueType::BytesValue(_) => Ok(value.byte_value().unwrap()),
+            _ => Err(Error::ExpectedBytes(key, value)),
         }
     }
 }
@@ -310,8 +295,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         // let hoge = match self.peek()? {
-        //     PeekedFieldElement::Key(_) => self.deserialize_str(visitor),
-        //     PeekedFieldElement::Value(value) => match value.value_type.as_ref().unwrap() {
+        //     PeekedBundleElement::Key(_) => self.deserialize_str(visitor),
+        //     PeekedBundleElement::Value(value) => match value.value_type.as_ref().unwrap() {
         //         ValueType::NullValue(_) => self.deserialize_unit(visitor),
         //         ValueType::BooleanValue(_) => self.deserialize_bool(visitor),
         //         ValueType::IntegerValue(_) => self.deserialize_i64(visitor),
@@ -324,7 +309,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         //         ValueType::ArrayValue(_) => Err(Error::ExpectedValue),
         //         ValueType::MapValue(_) => Err(Error::ExpectedValue),
         //     },
-        //     PeekedFieldElement::EndOfBundle => Err(Error::ExpectedValue),
+        //     PeekedBundleElement::EndOfBundle => Err(Error::ExpectedValue),
         // };
         // hoge
         todo!()
@@ -447,12 +432,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         V: Visitor<'de>,
     {
         {
-            if let PeekedFieldElement::Value(value) = self.peek()? {
-                if value.value_type.as_ref().unwrap().is_some_value() {
-                    return visitor.visit_some(self);
-                }
-            } else {
-                return Err(Error::ExpectedValue);
+            let value = self.peek()?.value();
+            if value.value_type.as_ref().unwrap().is_some_value() {
+                return visitor.visit_some(self);
             }
         }
 
@@ -464,14 +446,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::NullValue(_) = value.value_type.unwrap() {
-                visitor.visit_unit()
-            } else {
-                Err(Error::ExpectedNull)
-            }
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        if let ValueType::NullValue(_) = value.value_type.as_ref().unwrap() {
+            visitor.visit_unit()
         } else {
-            Err(Error::ExpectedValue)
+            Err(Error::ExpectedNull(key, value))
         }
     }
 
@@ -493,24 +472,23 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let BundleElement::Value(value) = self.pop()? {
-            if let ValueType::ArrayValue(array_value) = value.value_type.unwrap() {
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        match value.value_type.as_ref().unwrap() {
+            ValueType::ArrayValue(_) => {
+                let array_value = value.array_value().unwrap();
                 let iter: Box<dyn Iterator<Item = Value>> =
                     Box::new(array_value.values.into_iter());
-                let bundle = DeserializerBundle::Array(iter.peekable());
+                let bundle = DeserializerBundle::array(&key, iter.peekable());
                 let replaced = mem::replace(&mut self.processing_bundle, bundle);
                 self.bundle_stack.push(replaced);
                 let result = visitor.visit_seq(Entries::new(&mut self))?;
                 if let BundleElement::EndOfBundle = self.pop()? {
                     Ok(result)
                 } else {
-                    Err(Error::ExpectedArrayEnd)
+                    Err(Error::ExpectedArrayEnd(key))
                 }
-            } else {
-                Err(Error::ExpectedArray)
             }
-        } else {
-            Err(Error::ExpectedValue)
+            _ => Err(Error::ExpectedArray(key, value)),
         }
     }
 
@@ -537,18 +515,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let BundleElement::Value(value) = self.pop()? {
-            let bundle = DeserializerBundle::map(value.map_value()?);
+        let KeyValueSet(key, value) = self.pop()?.key_value_set();
+        if value.has_map_value() {
+            let map = value.map_value().unwrap();
+            let bundle = DeserializerBundle::map(&key, map);
             let replaced = mem::replace(&mut self.processing_bundle, bundle);
             self.bundle_stack.push(replaced);
             let result = visitor.visit_map(Entries::new(&mut self))?;
             if let BundleElement::EndOfBundle = self.pop()? {
                 Ok(result)
             } else {
-                Err(Error::ExpectedMapEnd)
+                Err(Error::ExpectedMapEnd(key))
             }
         } else {
-            Err(Error::ExpectedValue)
+            Err(Error::ExpectedMap(key.clone(), value))
         }
     }
 
@@ -573,25 +553,29 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        if let PeekedFieldElement::Value(value) = self.peek()? {
-            match value.value_type.as_ref().unwrap() {
-                ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
-                ValueType::MapValue(_) => {
-                    let map = self.pop()?.value().map_value()?;
-                    let bundle = DeserializerBundle::map(map);
+        match self.peek()?.value().value_type.as_ref().unwrap() {
+            ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
+            ValueType::MapValue(_) => {
+                let KeyValueSet(key, value) = self.pop()?.key_value_set();
+                if value.has_map_value() {
+                    let map = value.map_value().unwrap();
+                    let bundle = DeserializerBundle::map(&key, map);
                     let replaced = mem::replace(&mut self.processing_bundle, bundle);
                     self.bundle_stack.push(replaced);
                     let result = visitor.visit_enum(Enum::new(self))?;
                     if let BundleElement::EndOfBundle = self.pop()? {
                         Ok(result)
                     } else {
-                        Err(Error::ExpectedMapEnd)
+                        Err(Error::ExpectedMapEnd(key))
                     }
+                } else {
+                    Err(Error::ExpectedMap(key.clone(), value))
                 }
-                _ => Err(Error::ExpectedEnum),
             }
-        } else {
-            Err(Error::ExpectedValue)
+            _ => {
+                let KeyValueSet(key, value) = self.pop()?.key_value_set();
+                Err(Error::ExpectedEnum(key, value))
+            }
         }
     }
 
@@ -627,7 +611,7 @@ impl<'a, 'de> SeqAccess<'de> for Entries<'a> {
     where
         T: DeserializeSeed<'de>,
     {
-        if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
+        if let PeekedBundleElement::EndOfBundle = self.de.peek()? {
             Ok(None)
         } else {
             Ok(Some(seed.deserialize(&mut *self.de)?))
@@ -642,7 +626,7 @@ impl<'a, 'de> MapAccess<'de> for Entries<'a> {
     where
         K: DeserializeSeed<'de>,
     {
-        if let PeekedFieldElement::EndOfBundle = self.de.peek()? {
+        if let PeekedBundleElement::EndOfBundle = self.de.peek()? {
             Ok(None)
         } else {
             Ok(Some(seed.deserialize(&mut *self.de)?))
@@ -712,7 +696,7 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{from_fields, Error};
+    use super::{from_fields, Error, TraceKey};
     use crate::proto::google::firestore::v1::{value::ValueType, ArrayValue, MapValue, Value};
     use prost_types::Timestamp;
     use serde::Deserialize;
@@ -778,7 +762,6 @@ mod tests {
             b: bool,
             f_32: f32,
             f_64: f64,
-            c: char,
             #[serde(with = "serde_bytes")]
             bytes: Vec<u8>,
             option_some: Option<i64>,
@@ -872,7 +855,6 @@ mod tests {
             ("b".into(), Value::new(ValueType::BooleanValue(true))),
             ("f_32".into(), Value::double(0.1)),
             ("f_64".into(), Value::double(0.2)),
-            ("c".into(), Value::string("x")),
             ("bytes".into(), Value::new(ValueType::BytesValue(bytes))),
             ("option_some".into(), Value::integer(10)),
             ("option_none".into(), Value::new(ValueType::NullValue(0))),
@@ -909,7 +891,6 @@ mod tests {
             b: true,
             f_32: 0.1,
             f_64: 0.2,
-            c: 'x',
             bytes: vec![0, 1, 2],
             option_some: Some(10),
             option_none: None,
@@ -947,6 +928,31 @@ mod tests {
         assert_eq!(expected, test);
     }
 
+    #[test]
+    fn test_error() {
+        #[derive(Deserialize, Debug)]
+        struct A {
+            b: B,
+        }
+        #[derive(Deserialize, Debug)]
+        struct B {
+            c: C,
+        }
+        #[derive(Deserialize, Debug)]
+        struct C {
+            value: i64,
+        }
+
+        let c = HashMap::from_iter(vec![("value".into(), Value::string("a"))]);
+        let b = HashMap::from_iter(vec![("c".into(), Value::map(c))]);
+        let a: HashMap<String, Value> = HashMap::from_iter(vec![("b".into(), Value::map(b))]);
+        let error = from_fields::<A>(a).unwrap_err();
+        assert_eq!(
+            "A integer value was expected for /b/c/value, but it was String \"a\"",
+            error.to_string()
+        );
+    }
+
     #[derive(Deserialize, Debug)]
     struct ErrorTest<T> {
         value: T,
@@ -956,29 +962,30 @@ mod tests {
     fn test_expected_value() {
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
+        let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
         assert_eq!(
-            Error::ExpectedMap,
+            Error::ExpectedMap(key.clone(), Value::string("hoge")),
             from_fields::<ErrorTest<HashMap<String, i64>>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedBoolean,
+            Error::ExpectedBoolean(key.clone(), Value::string("hoge")),
             from_fields::<ErrorTest<bool>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedInteger,
+            Error::ExpectedInteger(key.clone(), Value::string("hoge")),
             from_fields::<ErrorTest<u64>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedInteger,
+            Error::ExpectedInteger(key.clone(), Value::string("hoge")),
             from_fields::<ErrorTest<i64>>(fields.clone()).unwrap_err()
         );
     }
 
-    #[test]
-    fn test_expected_string() {
-        let fields: HashMap<String, Value> =
-            HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
-        let error = from_fields::<ErrorTest<String>>(fields).unwrap_err();
-        assert_eq!(Error::ExpectedString, error);
-    }
+    // #[test]
+    // fn test_expected_string() {
+    //     let fields: HashMap<String, Value> =
+    //         HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
+    //     let error = from_fields::<ErrorTest<String>>(fields).unwrap_err();
+    //     assert_eq!(Error::ExpectedString, error);
+    // }
 }

@@ -1,3 +1,4 @@
+mod extensions;
 pub mod serde_document;
 
 use crate::config::project_id;
