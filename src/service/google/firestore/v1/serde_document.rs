@@ -554,7 +554,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_any(visitor)
+        unimplemented!()
     }
 }
 
