@@ -901,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error() {
+    fn test_nested_map_error() {
         #[derive(Deserialize, Debug)]
         struct A {
             b: B,
@@ -925,13 +925,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_array_error() {
+        #[derive(Deserialize, Debug)]
+        struct A {
+            b: B,
+        }
+        #[derive(Deserialize, Debug)]
+        struct B {
+            v: Vec<i64>,
+        }
+
+        let v = vec![Value::integer(1), Value::string("hoge")];
+        let b = HashMap::from_iter(vec![("v".into(), Value::array(v))]);
+        let a: HashMap<String, Value> = HashMap::from_iter(vec![("b".into(), Value::map(b))]);
+        let error = from_fields::<A>(a).unwrap_err();
+        assert_eq!(
+            "A integer value was expected for /b/v[], but it was String \"hoge\"",
+            error.to_string()
+        );
+    }
+
     #[derive(Deserialize, Debug)]
     struct ErrorTest<T> {
         value: T,
     }
 
     #[test]
-    fn test_expected_value() {
+    fn test_expected_value_error() {
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
         let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
@@ -951,13 +972,29 @@ mod tests {
             Error::ExpectedInteger(key.clone(), Value::string("hoge")),
             from_fields::<ErrorTest<i64>>(fields.clone()).unwrap_err()
         );
+
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
+        assert_eq!(
+            Error::ExpectedString(key.clone(), Value::integer(0)),
+            from_fields::<ErrorTest<String>>(fields.clone()).unwrap_err()
+        );
     }
 
-    // #[test]
-    // fn test_expected_string() {
-    //     let fields: HashMap<String, Value> =
-    //         HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
-    //     let error = from_fields::<ErrorTest<String>>(fields).unwrap_err();
-    //     assert_eq!(Error::ExpectedString, error);
-    // }
+    #[test]
+    fn test_convert_error() {
+        let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("value".into(), Value::integer(-1))]);
+        assert_eq!(
+            Error::CouldNotConvertNumber(key.clone(), Value::integer(-1)),
+            from_fields::<ErrorTest<u64>>(fields).unwrap_err()
+        );
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("value".into(), Value::integer(256))]);
+        assert_eq!(
+            Error::CouldNotConvertNumber(key.clone(), Value::integer(256)),
+            from_fields::<ErrorTest<u8>>(fields).unwrap_err()
+        );
+    }
 }
