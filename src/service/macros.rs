@@ -16,7 +16,7 @@ macro_rules! define_client {
 
         $(
             impl $type<tonic::transport::Channel> {
-                async fn get() -> Result<Self, Box<dyn std::error::Error>> {
+                pub(crate) async fn get() -> Result<Self, Box<dyn std::error::Error>> {
                     let channel = CHANNEL.get().await?.clone();
                     let token = crate::service::get_token(&[SCOPE]).await?;
 

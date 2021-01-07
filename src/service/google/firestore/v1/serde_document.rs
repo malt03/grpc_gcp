@@ -550,11 +550,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
+    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        self.pop()?;
+        visitor.visit_unit()
     }
 }
 
@@ -885,6 +886,15 @@ mod tests {
             enum_struct: E::Struct { value: 0.3 },
         };
         assert_eq!(expected, test);
+    }
+
+    #[test]
+    fn test_ignore_field() {
+        let fields = HashMap::from_iter(vec![
+            ("value".into(), Value::integer(1)),
+            ("b".into(), Value::integer(2)),
+        ]);
+        assert_eq!(ValueHolder { value: 1 }, from_fields(fields).unwrap());
     }
 
     #[test]

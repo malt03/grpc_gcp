@@ -1,29 +1,27 @@
-// use std::convert::TryFrom;
+use grpc_gcp::firestore::v1 as firestore;
+use serde::Deserialize;
 
-// use grpc_gcp::firestore::v1::serde_document;
-// use serde::Deserialize;
+#[derive(Debug, Deserialize)]
+struct Document {
+    foo: String,
+}
 
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     grpc_gcp::init("malt03");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    grpc_gcp::init("malt03");
 
-//     let paths = vec!["/test/JM6W5nAExLohWQir079S", "/test/njavllVh8IctGwjyit2n"];
+    let a = firestore::collection("test").doc("JM6W5nAExLohWQir079S");
+    let b = firestore::collection("test").doc("njavllVh8IctGwjyit2n");
 
-//     let mut all = Vec::new();
-//     for path in paths.clone() {
-//         let future = grpc_gcp::firestore::v1::get_document(path);
-//         all.push(future);
-//     }
+    let mut all = Vec::new();
+    all.push(a.get());
+    all.push(b.get());
 
-//     let results = futures::future::join_all(all).await;
-//     for result in results {
-//         let response = result.unwrap();
-//         println!("{:?}", response.get_ref().fields);
-//     }
+    let results = futures::future::join_all(all).await;
+    for result in results {
+        let doc: Document = result.unwrap();
+        println!("{:?}", doc);
+    }
 
-//     Ok(())
-// }
-
-fn main() {
-    println!("Ok");
+    Ok(())
 }
