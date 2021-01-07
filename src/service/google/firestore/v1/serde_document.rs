@@ -525,19 +525,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
             ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
             ValueType::MapValue(_) => {
                 let KeyValueSet(key, value) = self.pop()?.key_value_set();
-                if value.has_map_value() {
-                    let map = value.map_value().unwrap();
-                    let bundle = DeserializerBundle::map(&key, map);
-                    let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                    self.bundle_stack.push(replaced);
-                    let result = visitor.visit_enum(Enum::new(self))?;
-                    if let BundleElement::EndOfBundle = self.pop()? {
-                        Ok(result)
-                    } else {
-                        common_panic!()
-                    }
+                let map = value.map_value().unwrap();
+                let bundle = DeserializerBundle::map(&key, map);
+                let replaced = mem::replace(&mut self.processing_bundle, bundle);
+                self.bundle_stack.push(replaced);
+                let result = visitor.visit_enum(Enum::new(self))?;
+                if let BundleElement::EndOfBundle = self.pop()? {
+                    Ok(result)
                 } else {
-                    Err(Error::ExpectedMap(key.clone(), value))
+                    common_panic!()
                 }
             }
             _ => {
@@ -714,6 +710,28 @@ mod tests {
         }
     }
 
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct ValueHolder<T> {
+        value: T,
+    }
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct NewType(ValueHolder<i32>);
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct Tuple(String, ValueHolder<i32>);
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    enum E {
+        Unit,
+        NewType(ValueHolder<i32>),
+        Tuple(String, ValueHolder<i32>),
+        Struct { value: f64 },
+    }
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct Unit;
+
     #[test]
     fn test_fields() {
         #[derive(Deserialize, PartialEq, Debug)]
@@ -739,47 +757,20 @@ mod tests {
             unit_struct: Unit,
             newtype: NewType,
             tuple: Tuple,
-            child: Child1,
+            child: ValueHolder<i32>,
             map: HashMap<String, i32>,
             geo: HashMap<String, f64>,
             time: HashMap<String, i64>,
             i_time: i64,
             u_time: u64,
             int_vec: Vec<i64>,
-            child_array: [Child1; 3],
-            child_tuple: (Child1, Child2),
+            child_array: [ValueHolder<i32>; 3],
+            child_tuple: (ValueHolder<i32>, ValueHolder<String>),
             enum_unit: E,
             enum_newtype: E,
             enum_tuple: E,
             enum_struct: E,
         }
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct Child1 {
-            value: i32,
-        }
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct Child2 {
-            value: String,
-        }
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct NewType(Child1);
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct Tuple(String, Child1);
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        enum E {
-            Unit,
-            NewType(Child1),
-            Tuple(String, Child1),
-            Struct { value: f64 },
-        }
-
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct Unit;
 
         let bytes: Vec<u8> = vec![0, 1, 2];
         let tuple = vec![Value::string("aaa"), Value::child1(9)];
@@ -865,9 +856,9 @@ mod tests {
             option_empty: None,
             unit: (),
             unit_struct: Unit,
-            newtype: NewType(Child1 { value: 8 }),
-            tuple: Tuple("aaa".into(), Child1 { value: 9 }),
-            child: Child1 { value: 2 },
+            newtype: NewType(ValueHolder { value: 8 }),
+            tuple: Tuple("aaa".into(), ValueHolder { value: 9 }),
+            child: ValueHolder { value: 2 },
             geo: HashMap::from_iter(vec![("latitude".into(), 35.6), ("longitude".into(), 139.7)]),
             map: HashMap::from_iter(vec![("x".into(), 8), ("y".into(), 9)]),
             time: HashMap::from_iter(vec![
@@ -878,19 +869,19 @@ mod tests {
             u_time: 1609200002,
             int_vec: vec![1, 2, 3],
             child_array: [
-                Child1 { value: 2 },
-                Child1 { value: 3 },
-                Child1 { value: 4 },
+                ValueHolder { value: 2 },
+                ValueHolder { value: 3 },
+                ValueHolder { value: 4 },
             ],
             child_tuple: (
-                Child1 { value: 5 },
-                Child2 {
+                ValueHolder { value: 5 },
+                ValueHolder {
                     value: "piyo".into(),
                 },
             ),
             enum_unit: E::Unit,
-            enum_newtype: E::NewType(Child1 { value: 6 }),
-            enum_tuple: E::Tuple("fuga".into(), Child1 { value: 7 }),
+            enum_newtype: E::NewType(ValueHolder { value: 6 }),
+            enum_tuple: E::Tuple("fuga".into(), ValueHolder { value: 7 }),
             enum_struct: E::Struct { value: 0.3 },
         };
         assert_eq!(expected, test);
@@ -942,11 +933,6 @@ mod tests {
         );
     }
 
-    #[derive(Deserialize, Debug)]
-    struct ValueHolder<T> {
-        value: T,
-    }
-
     #[test]
     fn test_expected_value_error() {
         let fields: HashMap<String, Value> =
@@ -984,12 +970,20 @@ mod tests {
             Error::ExpectedArray(key.clone(), Value::string("hoge")),
             from_fields::<ValueHolder<Vec<i64>>>(fields.clone()).unwrap_err()
         );
+        assert_eq!(
+            Error::ExpectedArray(key.clone(), Value::string("hoge")),
+            from_fields::<ValueHolder<Vec<i64>>>(fields.clone()).unwrap_err()
+        );
 
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
         assert_eq!(
             Error::ExpectedString(key.clone(), Value::integer(0)),
             from_fields::<ValueHolder<String>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedEnum(key.clone(), Value::integer(0)),
+            from_fields::<ValueHolder<E>>(fields.clone()).unwrap_err()
         );
     }
 
