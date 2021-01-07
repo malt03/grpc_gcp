@@ -10,16 +10,6 @@ use serde::{
 };
 use std::{collections::HashMap, convert::TryFrom, fmt::Display, iter::Peekable, mem};
 
-impl ValueType {
-    fn is_some_value(&self) -> bool {
-        if let ValueType::NullValue(_) = self {
-            false
-        } else {
-            true
-        }
-    }
-}
-
 pub struct Deserializer {
     processing_bundle: DeserializerBundle,
     bundle_stack: Vec<DeserializerBundle>,
@@ -294,25 +284,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        // let hoge = match self.peek()? {
-        //     PeekedBundleElement::Key(_) => self.deserialize_str(visitor),
-        //     PeekedBundleElement::Value(value) => match value.value_type.as_ref().unwrap() {
-        //         ValueType::NullValue(_) => self.deserialize_unit(visitor),
-        //         ValueType::BooleanValue(_) => self.deserialize_bool(visitor),
-        //         ValueType::IntegerValue(_) => self.deserialize_i64(visitor),
-        //         ValueType::DoubleValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::TimestampValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::StringValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::BytesValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::ReferenceValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::GeoPointValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::ArrayValue(_) => Err(Error::ExpectedValue),
-        //         ValueType::MapValue(_) => Err(Error::ExpectedValue),
-        //     },
-        //     PeekedBundleElement::EndOfBundle => Err(Error::ExpectedValue),
-        // };
-        // hoge
-        todo!()
+        unimplemented!()
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
