@@ -3,20 +3,20 @@ mod error;
 use crate::proto::google::firestore::v1::{value::ValueType, Value};
 use core::panic;
 use de::SeqAccess;
-pub use error::{Error, Result};
+use error::{Error, Result};
 use serde::{
     de::{self, DeserializeSeed, EnumAccess, MapAccess, VariantAccess, Visitor},
     Deserialize,
 };
 use std::{collections::HashMap, convert::TryFrom, fmt::Display, iter::Peekable, mem};
 
-pub struct Deserializer {
+struct Deserializer {
     processing_bundle: DeserializerBundle,
     bundle_stack: Vec<DeserializerBundle>,
 }
 
 impl Deserializer {
-    pub fn from_fields(input: HashMap<String, Value>) -> Self {
+    fn from_fields(input: HashMap<String, Value>) -> Self {
         Deserializer {
             processing_bundle: DeserializerBundle::root(input),
             bundle_stack: Vec::new(),
@@ -30,7 +30,7 @@ enum DeserializerBundle {
 }
 
 #[derive(Clone, PartialEq)]
-pub enum TraceKey {
+pub(crate) enum TraceKey {
     Root,
     Map(String, Box<TraceKey>),
     Array(Box<TraceKey>),
@@ -84,7 +84,7 @@ impl DeserializerBundle {
     }
 }
 
-pub fn from_fields<'a, T>(s: HashMap<String, Value>) -> Result<T>
+pub(crate) fn from_fields<'a, T>(s: HashMap<String, Value>) -> Result<T>
 where
     T: Deserialize<'a>,
 {

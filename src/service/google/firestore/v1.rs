@@ -1,7 +1,7 @@
 mod extensions;
 mod models;
-pub mod serde_document;
-pub use models::{CollectionReference, DocumentReference};
+mod serde_document;
+use models::CollectionReference;
 
 use crate::proto::google::firestore::v1::firestore_client::FirestoreClient;
 

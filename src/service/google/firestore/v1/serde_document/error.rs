@@ -3,11 +3,11 @@ use fmt::Debug;
 use serde::{de, ser};
 use std;
 use std::fmt::{self, Display};
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 use crate::proto::google::firestore::v1::Value;
 
 #[derive(Clone, PartialEq)]
-pub enum Error {
+pub(crate) enum Error {
     Message(String),
 
     Eof,
