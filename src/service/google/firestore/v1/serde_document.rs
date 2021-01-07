@@ -262,12 +262,6 @@ impl Deserializer {
         }
     }
 
-    fn get_char(&mut self) -> Result<char> {
-        unimplemented!(
-            "Deserialization of char is not supported, please define it as string instead of char."
-        )
-    }
-
     fn get_bytes(&mut self) -> Result<Vec<u8>> {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         match value.value_type.as_ref().unwrap() {
@@ -364,11 +358,13 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_f64(self.get_f64()?)
     }
 
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_char(self.get_char()?)
+        unimplemented!(
+            "Deserialization of char is not supported, please define it as string instead of char."
+        )
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
@@ -497,7 +493,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
             if let BundleElement::EndOfBundle = self.pop()? {
                 Ok(result)
             } else {
-                Err(Error::ExpectedMapEnd(key))
+                common_panic!()
             }
         } else {
             Err(Error::ExpectedMap(key.clone(), value))
@@ -538,7 +534,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                     if let BundleElement::EndOfBundle = self.pop()? {
                         Ok(result)
                     } else {
-                        Err(Error::ExpectedMapEnd(key))
+                        common_panic!()
                     }
                 } else {
                     Err(Error::ExpectedMap(key.clone(), value))
@@ -947,7 +943,7 @@ mod tests {
     }
 
     #[derive(Deserialize, Debug)]
-    struct ErrorTest<T> {
+    struct ValueHolder<T> {
         value: T,
     }
 
@@ -958,26 +954,42 @@ mod tests {
         let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
         assert_eq!(
             Error::ExpectedMap(key.clone(), Value::string("hoge")),
-            from_fields::<ErrorTest<HashMap<String, i64>>>(fields.clone()).unwrap_err()
+            from_fields::<ValueHolder<HashMap<String, i64>>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
             Error::ExpectedBoolean(key.clone(), Value::string("hoge")),
-            from_fields::<ErrorTest<bool>>(fields.clone()).unwrap_err()
+            from_fields::<ValueHolder<bool>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
             Error::ExpectedInteger(key.clone(), Value::string("hoge")),
-            from_fields::<ErrorTest<u64>>(fields.clone()).unwrap_err()
+            from_fields::<ValueHolder<u64>>(fields.clone()).unwrap_err()
         );
         assert_eq!(
             Error::ExpectedInteger(key.clone(), Value::string("hoge")),
-            from_fields::<ErrorTest<i64>>(fields.clone()).unwrap_err()
+            from_fields::<ValueHolder<i64>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedDouble(key.clone(), Value::string("hoge")),
+            from_fields::<ValueHolder<f32>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedDouble(key.clone(), Value::string("hoge")),
+            from_fields::<ValueHolder<f64>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedNull(key.clone(), Value::string("hoge")),
+            from_fields::<ValueHolder<()>>(fields.clone()).unwrap_err()
+        );
+        assert_eq!(
+            Error::ExpectedArray(key.clone(), Value::string("hoge")),
+            from_fields::<ValueHolder<Vec<i64>>>(fields.clone()).unwrap_err()
         );
 
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
         assert_eq!(
             Error::ExpectedString(key.clone(), Value::integer(0)),
-            from_fields::<ErrorTest<String>>(fields.clone()).unwrap_err()
+            from_fields::<ValueHolder<String>>(fields.clone()).unwrap_err()
         );
     }
 
@@ -988,13 +1000,31 @@ mod tests {
             HashMap::from_iter(vec![("value".into(), Value::integer(-1))]);
         assert_eq!(
             Error::CouldNotConvertNumber(key.clone(), Value::integer(-1)),
-            from_fields::<ErrorTest<u64>>(fields).unwrap_err()
+            from_fields::<ValueHolder<u64>>(fields).unwrap_err()
         );
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(256))]);
         assert_eq!(
             Error::CouldNotConvertNumber(key.clone(), Value::integer(256)),
-            from_fields::<ErrorTest<u8>>(fields).unwrap_err()
+            from_fields::<ValueHolder<u8>>(fields).unwrap_err()
+        );
+        let fields: HashMap<String, Value> =
+            HashMap::from_iter(vec![("value".into(), Value::double(-3.40282348E+38))]);
+        assert_eq!(
+            Error::CouldNotConvertNumber(key.clone(), Value::double(-3.40282348E+38)),
+            from_fields::<ValueHolder<f32>>(fields).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_end_error() {
+        let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
+        let value = Value::integer(1);
+        let array = Value::array(vec![value.clone(), value.clone(), value.clone()]);
+        let fields: HashMap<String, Value> = HashMap::from_iter(vec![("value".into(), array)]);
+        assert_eq!(
+            Error::ExpectedArrayEnd(key.clone()),
+            from_fields::<ValueHolder<(i32, i32)>>(fields).unwrap_err()
         );
     }
 }

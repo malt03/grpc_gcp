@@ -16,7 +16,6 @@ pub enum Error {
     ExpectedInteger(TraceKey, Value),
     ExpectedDouble(TraceKey, Value),
     ExpectedString(TraceKey, Value),
-    ExpectedChar(TraceKey, Value),
     ExpectedBytes(TraceKey, Value),
     ExpectedNull(TraceKey, Value),
     ExpectedArray(TraceKey, Value),
@@ -24,7 +23,6 @@ pub enum Error {
     ExpectedEnum(TraceKey, Value),
     CouldNotConvertNumber(TraceKey, Value),
     ExpectedArrayEnd(TraceKey),
-    ExpectedMapEnd(TraceKey),
 }
 
 impl ser::Error for Error {
@@ -61,10 +59,6 @@ impl Error {
                 "A string value was expected for {}, but it was {}",
                 key, value
             ),
-            Error::ExpectedChar(key, value) => format!(
-                "A char value was expected for {}, but it was {}",
-                key, value
-            ),
             Error::ExpectedBytes(key, value) => format!(
                 "A bytes value was expected for {}, but it was {}",
                 key, value
@@ -90,9 +84,6 @@ impl Error {
             ),
             Error::ExpectedArrayEnd(key) => {
                 format!("The length of the array is invalid. key: {}", key)
-            }
-            Error::ExpectedMapEnd(key) => {
-                format!("The length of the map is invalid. key: {}", key)
             }
         }
     }
