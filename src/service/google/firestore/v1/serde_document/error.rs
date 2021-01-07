@@ -1,10 +1,11 @@
-use super::TraceKey;
 use fmt::Debug;
 use serde::{de, ser};
 use std;
 use std::fmt::{self, Display};
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 use crate::proto::google::firestore::v1::Value;
+
+use super::common::TraceKey;
 
 #[derive(Clone, PartialEq)]
 pub(crate) enum Error {
