@@ -1,4 +1,3 @@
-mod extensions;
 mod models;
 mod serde_document;
 use models::CollectionReference;

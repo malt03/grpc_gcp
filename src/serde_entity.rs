@@ -1,4 +1,4 @@
-mod common;
+pub mod common;
 pub(crate) mod deserializer;
-mod error;
-mod value;
+pub mod error;
+pub mod value;

@@ -1,643 +1,194 @@
-use super::{
-    common::{KeyValueSet, TraceKey},
-    error::{Error, Result},
+use crate::serde_entity::deserializer::{from_fields, Error, TraceKey, ValueTrait};
+use crate::{
+    proto::google::firestore::v1::{value::ValueType, ArrayValue, MapValue, Value},
+    serde_entity::value::{ArrayValueTrait, LatLngTrait, MapValueTrait, ValueTypeRef},
 };
-use crate::proto::google::firestore::v1::{value::ValueType, Value};
-use core::panic;
-use de::SeqAccess;
-use serde::{
-    de::{self, DeserializeSeed, EnumAccess, MapAccess, VariantAccess, Visitor},
-    Deserialize,
-};
-use std::{collections::HashMap, convert::TryFrom, iter::Peekable, mem};
+use prost_types::Timestamp;
+use serde::Deserialize;
+use std::{collections::HashMap, iter::FromIterator};
 
-struct Deserializer {
-    processing_bundle: DeserializerBundle,
-    bundle_stack: Vec<DeserializerBundle>,
+impl LatLngTrait for crate::proto::google::r#type::LatLng {
+    fn get_latitude(&self) -> f64 {
+        self.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.longitude
+    }
 }
 
-impl Deserializer {
-    fn from_fields(input: HashMap<String, Value>) -> Self {
-        Deserializer {
-            processing_bundle: DeserializerBundle::root(input),
-            bundle_stack: Vec::new(),
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.value_type.as_ref().unwrap() {
+            ValueType::NullValue(value) => write!(f, "Null {:?}", value),
+            ValueType::BooleanValue(value) => write!(f, "Boolean {:?}", value),
+            ValueType::IntegerValue(value) => write!(f, "Integer {:?}", value),
+            ValueType::DoubleValue(value) => write!(f, "Double {:?}", value),
+            ValueType::TimestampValue(value) => write!(f, "Timestamp {:?}", value),
+            ValueType::StringValue(value) => write!(f, "String {:?}", value),
+            ValueType::BytesValue(value) => write!(f, "Bytes {:?}", value),
+            ValueType::ReferenceValue(value) => write!(f, "Reference {:?}", value),
+            ValueType::GeoPointValue(value) => write!(f, "GeoPoint {:?}", value),
+            ValueType::ArrayValue(value) => write!(f, "Array {:?}", value),
+            ValueType::MapValue(value) => write!(f, "Map {:?}", value),
         }
     }
 }
 
-enum DeserializerBundle {
-    Map(MapDeserializerBundle),
-    Array(ArrayDeserializerBundle),
+impl ArrayValueTrait<Value> for ArrayValue {
+    fn get_values(self) -> Vec<Value> {
+        self.values
+    }
 }
 
-struct MapDeserializerBundle {
-    key: TraceKey,
-    entries: Peekable<Box<dyn Iterator<Item = (String, Value)>>>,
-    poped_value: Option<KeyValueSet>,
+impl MapValueTrait<Value> for MapValue {
+    fn get_fields(self) -> HashMap<String, Value> {
+        self.fields
+    }
 }
 
-struct ArrayDeserializerBundle {
-    key: TraceKey,
-    values: Peekable<Box<dyn Iterator<Item = Value>>>,
-}
+impl ValueTrait for Value {
+    type LatLng = crate::proto::google::r#type::LatLng;
+    type ArrayValue = ArrayValue;
+    type MapValue = MapValue;
 
-impl DeserializerBundle {
-    fn map(key: &TraceKey, input: HashMap<String, Value>) -> Self {
-        DeserializerBundle::Map(MapDeserializerBundle {
-            key: key.clone(),
-            entries: (Box::new(input.into_iter()) as Box<dyn Iterator<Item = _>>).peekable(),
-            poped_value: None,
+    fn from_fields(input: HashMap<String, Self>) -> Self {
+        Value {
+            value_type: Some(ValueType::MapValue(MapValue { fields: input })),
+        }
+    }
+
+    fn new(value_type: crate::serde_entity::value::ValueType<Self>) -> Self {
+        let value_type = match value_type {
+            crate::serde_entity::value::ValueType::NullValue(value) => ValueType::NullValue(value),
+            crate::serde_entity::value::ValueType::BooleanValue(value) => {
+                ValueType::BooleanValue(value)
+            }
+            crate::serde_entity::value::ValueType::IntegerValue(value) => {
+                ValueType::IntegerValue(value)
+            }
+            crate::serde_entity::value::ValueType::DoubleValue(value) => {
+                ValueType::DoubleValue(value)
+            }
+            crate::serde_entity::value::ValueType::TimestampValue(value) => {
+                ValueType::TimestampValue(value)
+            }
+            crate::serde_entity::value::ValueType::StringValue(value) => {
+                ValueType::StringValue(value)
+            }
+            crate::serde_entity::value::ValueType::BytesValue(value) => {
+                ValueType::BytesValue(value)
+            }
+            crate::serde_entity::value::ValueType::ReferenceValue(value) => {
+                ValueType::ReferenceValue(value)
+            }
+            crate::serde_entity::value::ValueType::GeoPointValue(value) => {
+                ValueType::GeoPointValue(value)
+            }
+            crate::serde_entity::value::ValueType::ArrayValue(value) => {
+                ValueType::ArrayValue(value)
+            }
+            crate::serde_entity::value::ValueType::MapValue(value) => ValueType::MapValue(value),
+        };
+        Value {
+            value_type: Some(value_type),
+        }
+    }
+
+    fn into_value_type(self) -> Option<crate::serde_entity::value::ValueType<Self>> {
+        self.value_type.map(|value_type| match value_type {
+            ValueType::NullValue(value) => crate::serde_entity::value::ValueType::NullValue(value),
+            ValueType::BooleanValue(value) => {
+                crate::serde_entity::value::ValueType::BooleanValue(value)
+            }
+            ValueType::IntegerValue(value) => {
+                crate::serde_entity::value::ValueType::IntegerValue(value)
+            }
+            ValueType::DoubleValue(value) => {
+                crate::serde_entity::value::ValueType::DoubleValue(value)
+            }
+            ValueType::TimestampValue(value) => {
+                crate::serde_entity::value::ValueType::TimestampValue(value)
+            }
+            ValueType::StringValue(value) => {
+                crate::serde_entity::value::ValueType::StringValue(value)
+            }
+            ValueType::BytesValue(value) => {
+                crate::serde_entity::value::ValueType::BytesValue(value)
+            }
+            ValueType::ReferenceValue(value) => {
+                crate::serde_entity::value::ValueType::ReferenceValue(value)
+            }
+            ValueType::GeoPointValue(value) => {
+                crate::serde_entity::value::ValueType::GeoPointValue(value)
+            }
+            ValueType::ArrayValue(value) => {
+                crate::serde_entity::value::ValueType::ArrayValue(value)
+            }
+            ValueType::MapValue(value) => crate::serde_entity::value::ValueType::MapValue(value),
         })
     }
 
-    fn array(key: &TraceKey, input: Peekable<Box<dyn Iterator<Item = Value>>>) -> Self {
-        DeserializerBundle::Array(ArrayDeserializerBundle {
-            key: key.clone(),
-            values: input,
+    fn get_value_type<'s>(&'s self) -> Option<crate::serde_entity::value::ValueTypeRef<Self>> {
+        self.value_type.as_ref().map(|value_type| match value_type {
+            ValueType::NullValue(value) => ValueTypeRef::NullValue(value),
+            ValueType::BooleanValue(value) => ValueTypeRef::BooleanValue(value),
+            ValueType::IntegerValue(value) => ValueTypeRef::IntegerValue(value),
+            ValueType::DoubleValue(value) => ValueTypeRef::DoubleValue(value),
+            ValueType::TimestampValue(value) => ValueTypeRef::TimestampValue(value),
+            ValueType::StringValue(value) => ValueTypeRef::StringValue(value),
+            ValueType::BytesValue(value) => ValueTypeRef::BytesValue(value),
+            ValueType::ReferenceValue(value) => ValueTypeRef::ReferenceValue(value),
+            ValueType::GeoPointValue(value) => ValueTypeRef::GeoPointValue(value),
+            ValueType::ArrayValue(value) => ValueTypeRef::ArrayValue(value),
+            ValueType::MapValue(value) => ValueTypeRef::MapValue(value),
         })
     }
-
-    fn root(input: HashMap<String, Value>) -> Self {
-        DeserializerBundle::Map(MapDeserializerBundle {
-            key: TraceKey::Root,
-            entries: (Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>).peekable(),
-            poped_value: Some(KeyValueSet(TraceKey::Root, Value::from_fields(input))),
-        })
-    }
 }
 
-pub(crate) fn from_fields<'a, T>(s: HashMap<String, Value>) -> Result<T>
-where
-    T: Deserialize<'a>,
-{
-    let mut deserializer = Deserializer::from_fields(s);
-    Ok(T::deserialize(&mut deserializer)?)
-}
+// impl Value {
+//     fn map(hashmap: HashMap<String, Value>) -> Self {
+//         Value::new(ValueType::MapValue(MapValue { fields: hashmap }))
+//     }
 
-enum BundleElement {
-    Key(String),
-    Value(KeyValueSet),
-    EndOfBundle,
-}
+//     fn geopoint(latitude: f64, longitude: f64) -> Self {
+//         Value::new(ValueType::GeoPointValue(
+//             crate::proto::google::r#type::LatLng {
+//                 latitude,
+//                 longitude: longitude,
+//             },
+//         ))
+//     }
 
-impl BundleElement {
-    fn key_value_set(self) -> KeyValueSet {
-        if let BundleElement::Value(key_value_set) = self {
-            key_value_set
-        } else {
-            common_panic!()
-        }
-    }
-}
+//     fn timestamp(seconds: i64, nanos: i32) -> Self {
+//         Value::new(ValueType::TimestampValue(Timestamp {
+//             seconds: seconds,
+//             nanos: nanos,
+//         }))
+//     }
 
-enum PeekedBundleElement<'a> {
-    Key(&'a String),
-    Value(&'a Value),
-    EndOfBundle,
-}
+//     fn child1(value: i64) -> Value {
+//         Value::map(HashMap::from_iter(vec![(
+//             "value".into(),
+//             Value::integer(value),
+//         )]))
+//     }
 
-impl<'a> PeekedBundleElement<'a> {
-    fn value(self) -> &'a Value {
-        if let PeekedBundleElement::Value(value) = self {
-            value
-        } else {
-            common_panic!()
-        }
-    }
-}
+//     fn child2(value: impl Into<String>) -> Value {
+//         Value::map(HashMap::from_iter(vec![(
+//             "value".into(),
+//             Value::string(value),
+//         )]))
+//     }
 
-impl Deserializer {
-    fn pop(&mut self) -> Result<BundleElement> {
-        fn pop_bundle_stack(de: &mut Deserializer) -> Result<BundleElement> {
-            match de.bundle_stack.pop() {
-                None => Err(Error::Eof),
-                Some(bundle) => {
-                    de.processing_bundle = bundle;
-                    Ok(BundleElement::EndOfBundle)
-                }
-            }
-        }
-        match self.processing_bundle {
-            DeserializerBundle::Map(ref mut bundle) => {
-                match mem::replace(&mut bundle.poped_value, None) {
-                    Some(value) => {
-                        bundle.poped_value = None;
-                        Ok(BundleElement::Value(value))
-                    }
-                    None => match bundle.entries.next() {
-                        None => pop_bundle_stack(self),
-                        Some((key, value)) => {
-                            bundle.poped_value = Some(KeyValueSet(
-                                TraceKey::Map(key.clone(), Box::new(bundle.key.clone())),
-                                value,
-                            ));
-                            Ok(BundleElement::Key(key))
-                        }
-                    },
-                }
-            }
-            DeserializerBundle::Array(ref mut bundle) => match bundle.values.next() {
-                None => pop_bundle_stack(self),
-                Some(value) => {
-                    let set = KeyValueSet(TraceKey::Array(Box::new(bundle.key.clone())), value);
-                    Ok(BundleElement::Value(set))
-                }
-            },
-        }
-    }
+//     fn string(value: impl Into<String>) -> Value {
+//         Value::new(ValueType::StringValue(value.into()))
+//     }
 
-    fn peek(&mut self) -> Result<PeekedBundleElement> {
-        fn peek_bundle_stack(
-            bundle_stack: &Vec<DeserializerBundle>,
-        ) -> Result<PeekedBundleElement> {
-            match bundle_stack.last() {
-                None => Err(Error::Eof),
-                Some(_) => Ok(PeekedBundleElement::EndOfBundle),
-            }
-        }
-        match self.processing_bundle {
-            DeserializerBundle::Map(ref mut bundle) => match bundle.poped_value {
-                Some(KeyValueSet(_, ref value)) => Ok(PeekedBundleElement::Value(value)),
-                None => match bundle.entries.peek() {
-                    None => peek_bundle_stack(&self.bundle_stack),
-                    Some(entriy) => Ok(PeekedBundleElement::Key(&entriy.0)),
-                },
-            },
-            DeserializerBundle::Array(ref mut bundle) => match bundle.values.peek() {
-                None => peek_bundle_stack(&self.bundle_stack),
-                Some(value) => Ok(PeekedBundleElement::Value(value)),
-            },
-        }
-    }
-
-    fn get_bool(&mut self) -> Result<bool> {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        if let ValueType::BooleanValue(value) = value.value_type.as_ref().unwrap() {
-            Ok(*value)
-        } else {
-            Err(Error::ExpectedBoolean(key, value))
-        }
-    }
-
-    fn get_string(&mut self) -> Result<String> {
-        match self.pop()? {
-            BundleElement::Key(key) => Ok(key.clone()),
-            BundleElement::Value(KeyValueSet(key, value)) => {
-                if let ValueType::StringValue(value) = value.value_type.as_ref().unwrap() {
-                    Ok(value.clone())
-                } else {
-                    Err(Error::ExpectedString(key, value))
-                }
-            }
-            BundleElement::EndOfBundle => common_panic!(),
-        }
-    }
-
-    fn get_unsigned<T>(&mut self) -> Result<T>
-    where
-        T: TryFrom<u64>,
-    {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        match value.integer_value() {
-            Some(i) => {
-                let min = u64::min_value() as i64;
-                if i >= min {
-                    T::try_from(i as u64).or(Err(Error::CouldNotConvertNumber(key, value)))
-                } else {
-                    Err(Error::CouldNotConvertNumber(key, value))
-                }
-            }
-            None => Err(Error::ExpectedInteger(key.clone(), value)),
-        }
-    }
-
-    fn get_signed<T>(&mut self) -> Result<T>
-    where
-        T: TryFrom<i64>,
-    {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        match value.integer_value() {
-            Some(i) => T::try_from(i).or(Err(Error::CouldNotConvertNumber(key, value))),
-            None => Err(Error::ExpectedInteger(key.clone(), value)),
-        }
-    }
-
-    fn get_f64(&mut self) -> Result<f64> {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        if let ValueType::DoubleValue(value) = value.value_type.as_ref().unwrap() {
-            Ok(*value)
-        } else {
-            Err(Error::ExpectedDouble(key, value))
-        }
-    }
-
-    fn get_f32(&mut self) -> Result<f32> {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        if let ValueType::DoubleValue(f) = value.value_type.as_ref().unwrap() {
-            if *f > f32::MIN as f64 && *f < f32::MAX as f64 {
-                Ok(*f as f32)
-            } else {
-                Err(Error::CouldNotConvertNumber(key, value))
-            }
-        } else {
-            Err(Error::ExpectedDouble(key, value))
-        }
-    }
-
-    fn get_bytes(&mut self) -> Result<Vec<u8>> {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        match value.value_type.as_ref().unwrap() {
-            ValueType::BytesValue(_) => Ok(value.byte_value().unwrap()),
-            _ => Err(Error::ExpectedBytes(key, value)),
-        }
-    }
-}
-
-impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
-    type Error = Error;
-
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_bool(self.get_bool()?)
-    }
-
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_i8(self.get_signed()?)
-    }
-
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_i16(self.get_signed()?)
-    }
-
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_i32(self.get_signed()?)
-    }
-
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_i64(self.get_signed()?)
-    }
-
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_u8(self.get_unsigned()?)
-    }
-
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_u16(self.get_unsigned()?)
-    }
-
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_u32(self.get_unsigned()?)
-    }
-
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_u64(self.get_unsigned()?)
-    }
-
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_f32(self.get_f32()?)
-    }
-
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_f64(self.get_f64()?)
-    }
-
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!(
-            "Deserialization of char is not supported, please define it as string instead of char."
-        )
-    }
-
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_str(&self.get_string()?)
-    }
-
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_bytes(&self.get_bytes()?)
-    }
-
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_bytes(visitor)
-    }
-
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        {
-            let value = self.peek()?.value();
-            if value.value_type.as_ref().unwrap().is_some_value() {
-                return visitor.visit_some(self);
-            }
-        }
-
-        self.pop().unwrap();
-        visitor.visit_none()
-    }
-
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        if let ValueType::NullValue(_) = value.value_type.as_ref().unwrap() {
-            visitor.visit_unit()
-        } else {
-            Err(Error::ExpectedNull(key, value))
-        }
-    }
-
-    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_unit(visitor)
-    }
-
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_newtype_struct(self)
-    }
-
-    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        match value.value_type.as_ref().unwrap() {
-            ValueType::ArrayValue(_) => {
-                let array_value = value.array_value().unwrap();
-                let iter: Box<dyn Iterator<Item = Value>> =
-                    Box::new(array_value.values.into_iter());
-                let bundle = DeserializerBundle::array(&key, iter.peekable());
-                let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                self.bundle_stack.push(replaced);
-                let result = visitor.visit_seq(Entries::new(&mut self))?;
-                if let BundleElement::EndOfBundle = self.pop()? {
-                    Ok(result)
-                } else {
-                    Err(Error::ExpectedArrayEnd(key))
-                }
-            }
-            _ => Err(Error::ExpectedArray(key, value)),
-        }
-    }
-
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_tuple_struct<V>(
-        self,
-        _name: &'static str,
-        _len: usize,
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_map<V>(mut self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let KeyValueSet(key, value) = self.pop()?.key_value_set();
-        if value.has_map_value() {
-            let map = value.map_value().unwrap();
-            let bundle = DeserializerBundle::map(&key, map);
-            let replaced = mem::replace(&mut self.processing_bundle, bundle);
-            self.bundle_stack.push(replaced);
-            let result = visitor.visit_map(Entries::new(&mut self))?;
-            if let BundleElement::EndOfBundle = self.pop()? {
-                Ok(result)
-            } else {
-                common_panic!()
-            }
-        } else {
-            Err(Error::ExpectedMap(key.clone(), value))
-        }
-    }
-
-    fn deserialize_struct<V>(
-        self,
-        _name: &'static str,
-        _fields: &'static [&'static str],
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_map(visitor)
-    }
-
-    fn deserialize_enum<V>(
-        self,
-        _name: &'static str,
-        _variants: &'static [&'static str],
-        visitor: V,
-    ) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        match self.peek()?.value().value_type.as_ref().unwrap() {
-            ValueType::StringValue(_) => visitor.visit_enum(Enum::new(self)),
-            ValueType::MapValue(_) => {
-                let KeyValueSet(key, value) = self.pop()?.key_value_set();
-                let map = value.map_value().unwrap();
-                let bundle = DeserializerBundle::map(&key, map);
-                let replaced = mem::replace(&mut self.processing_bundle, bundle);
-                self.bundle_stack.push(replaced);
-                let result = visitor.visit_enum(Enum::new(self))?;
-                if let BundleElement::EndOfBundle = self.pop()? {
-                    Ok(result)
-                } else {
-                    common_panic!()
-                }
-            }
-            _ => {
-                let KeyValueSet(key, value) = self.pop()?.key_value_set();
-                Err(Error::ExpectedEnum(key, value))
-            }
-        }
-    }
-
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.pop()?;
-        visitor.visit_unit()
-    }
-}
-
-struct Entries<'a> {
-    de: &'a mut Deserializer,
-}
-
-impl<'a> Entries<'a> {
-    fn new(de: &'a mut Deserializer) -> Self {
-        Entries { de }
-    }
-}
-
-impl<'a, 'de> SeqAccess<'de> for Entries<'a> {
-    type Error = Error;
-
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
-    where
-        T: DeserializeSeed<'de>,
-    {
-        if let PeekedBundleElement::EndOfBundle = self.de.peek()? {
-            Ok(None)
-        } else {
-            Ok(Some(seed.deserialize(&mut *self.de)?))
-        }
-    }
-}
-
-impl<'a, 'de> MapAccess<'de> for Entries<'a> {
-    type Error = Error;
-
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
-    where
-        K: DeserializeSeed<'de>,
-    {
-        if let PeekedBundleElement::EndOfBundle = self.de.peek()? {
-            Ok(None)
-        } else {
-            Ok(Some(seed.deserialize(&mut *self.de)?))
-        }
-    }
-
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
-    where
-        V: DeserializeSeed<'de>,
-    {
-        seed.deserialize(&mut *self.de)
-    }
-}
-
-struct Enum<'a> {
-    de: &'a mut Deserializer,
-}
-
-impl<'a> Enum<'a> {
-    fn new(de: &'a mut Deserializer) -> Self {
-        Enum { de }
-    }
-}
-
-impl<'de, 'a> EnumAccess<'de> for Enum<'a> {
-    type Error = Error;
-    type Variant = Self;
-
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant)>
-    where
-        V: DeserializeSeed<'de>,
-    {
-        Ok((seed.deserialize(&mut *self.de)?, self))
-    }
-}
-
-impl<'de, 'a> VariantAccess<'de> for Enum<'a> {
-    type Error = Error;
-
-    fn unit_variant(self) -> Result<()> {
-        Ok(())
-    }
-
-    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
-    where
-        T: DeserializeSeed<'de>,
-    {
-        seed.deserialize(self.de)
-    }
-
-    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        de::Deserializer::deserialize_seq(self.de, visitor)
-    }
-
-    fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        de::Deserializer::deserialize_map(self.de, visitor)
-    }
-}
+//     fn array(values: Vec<Value>) -> Value {
+//         Value::new(ValueType::ArrayValue(ArrayValue { values: values }))
+//     }
+// }
 
 ////////////////////////////////////////////////////////////////////////////////
 

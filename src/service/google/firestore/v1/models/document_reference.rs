@@ -1,8 +1,8 @@
 use super::collection_reference::CollectionReference;
 use crate::{
     config::project_id,
-    firestore::v1::serde_document::from_fields,
     proto::google::firestore::v1::{firestore_client::FirestoreClient, GetDocumentRequest},
+    serde_entity::deserializer::from_fields,
 };
 use serde::Deserialize;
 
