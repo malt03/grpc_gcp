@@ -184,10 +184,10 @@ impl<Value: ValueTrait> Deserializer<Value> {
         match self.pop()? {
             BundleElement::Key(key) => Ok(key.clone()),
             BundleElement::Value(KeyValueSet(key, value)) => {
-                if let ValueTypeRef::StringValue(value) = value.get_value_type().unwrap() {
-                    Ok(value.clone())
-                } else {
-                    Err(Error::ExpectedString(key, value))
+                match value.get_value_type().unwrap() {
+                    ValueTypeRef::StringValue(value) => Ok(value.clone()),
+                    ValueTypeRef::ReferenceValue(value) => Ok(value.clone()),
+                    _ => Err(Error::ExpectedString(key, value)),
                 }
             }
             BundleElement::EndOfBundle => common_panic!(),

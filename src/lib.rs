@@ -5,7 +5,7 @@ mod proto;
 mod serde_entity;
 mod util;
 
-pub use service::google::{firestore, pubsub};
+pub use service::google::{datastore, firestore, pubsub};
 
 pub fn init(project_id: impl Into<String>) {
     config::init(project_id);

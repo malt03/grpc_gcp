@@ -36,11 +36,19 @@ impl serde_entity::ArrayValueTrait<Value> for ArrayValue {
     fn get_values(self) -> Vec<Value> {
         self.values
     }
+
+    fn new(values: Vec<Value>) -> Self {
+        ArrayValue { values }
+    }
 }
 
 impl serde_entity::MapValueTrait<Value> for MapValue {
     fn get_fields(self) -> HashMap<String, Value> {
         self.fields
+    }
+
+    fn new(fields: HashMap<String, Value>) -> Self {
+        MapValue { fields }
     }
 }
 
@@ -68,6 +76,7 @@ impl serde_entity::ValueTrait for Value {
             serde_entity::ValueType::GeoPointValue(value) => ValueType::GeoPointValue(value),
             serde_entity::ValueType::ArrayValue(value) => ValueType::ArrayValue(value),
             serde_entity::ValueType::MapValue(value) => ValueType::MapValue(value),
+            serde_entity::ValueType::KeyValue(_) => common_panic!(),
         };
         Value {
             value_type: Some(value_type),

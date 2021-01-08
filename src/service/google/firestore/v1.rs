@@ -1,5 +1,5 @@
 mod models;
-mod serde_document;
+mod serde;
 use models::CollectionReference;
 
 use crate::proto::google::firestore::v1::firestore_client::FirestoreClient;

@@ -1,3 +1,5 @@
+use crate::proto::google::datastore::v1::{key::path_element::IdType, key::PathElement, Key};
+use prost_types::Timestamp;
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -16,6 +18,7 @@ pub(crate) enum ValueType<Value: ValueTrait> {
     GeoPointValue(Value::LatLng),
     ArrayValue(Value::ArrayValue),
     MapValue(Value::MapValue),
+    KeyValue(Key),
 }
 
 pub(crate) enum ValueTypeRef<'a, Value: ValueTrait> {
@@ -30,6 +33,7 @@ pub(crate) enum ValueTypeRef<'a, Value: ValueTrait> {
     GeoPointValue(&'a Value::LatLng),
     ArrayValue(&'a Value::ArrayValue),
     MapValue(&'a Value::MapValue),
+    KeyValue(&'a Key),
 }
 
 impl<'a, Value: ValueTrait> ValueTypeRef<'a, Value> {
@@ -44,15 +48,117 @@ impl<'a, Value: ValueTrait> ValueTypeRef<'a, Value> {
 
 pub(crate) trait MapValueTrait<Value: ValueTrait> {
     fn get_fields(self) -> HashMap<String, Value>;
+    fn new(fields: HashMap<String, Value>) -> Self;
 }
 
 pub(crate) trait ArrayValueTrait<Value: ValueTrait> {
     fn get_values(self) -> Vec<Value>;
+    fn new(values: Vec<Value>) -> Self;
 }
 
 pub(crate) trait LatLngTrait {
     fn get_latitude(&self) -> f64;
     fn get_longitude(&self) -> f64;
+
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value> {
+        HashMap::from_iter(vec![
+            (
+                "latitude".into(),
+                Value::new(ValueType::DoubleValue(self.get_latitude())),
+            ),
+            (
+                "longitude".into(),
+                Value::new(ValueType::DoubleValue(self.get_longitude())),
+            ),
+        ])
+    }
+}
+
+trait MapValue {
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value>;
+}
+
+impl MapValue for Timestamp {
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value> {
+        HashMap::from_iter(vec![
+            (
+                "seconds".into(),
+                Value::new(ValueType::IntegerValue(self.seconds)),
+            ),
+            (
+                "nanos".into(),
+                Value::new(ValueType::IntegerValue(self.nanos.into())),
+            ),
+        ])
+    }
+}
+
+impl IdType {
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value> {
+        match self {
+            IdType::Id(id) => HashMap::from_iter(vec![(
+                "Id".into(),
+                Value::new(ValueType::IntegerValue(*id)),
+            )]),
+            IdType::Name(name) => HashMap::from_iter(vec![(
+                "Name".into(),
+                Value::new(ValueType::StringValue(name.clone())),
+            )]),
+        }
+    }
+}
+
+impl PathElement {
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value> {
+        let id_type = match self.id_type.as_ref() {
+            Some(id_type) => ValueType::MapValue(Value::MapValue::new(id_type.map_value())),
+            None => ValueType::NullValue(0),
+        };
+        HashMap::from_iter(vec![
+            (
+                "kind".into(),
+                Value::new(ValueType::StringValue(self.kind.clone())),
+            ),
+            ("id_type".into(), Value::new(id_type)),
+        ])
+    }
+}
+
+impl Key {
+    fn map_value<Value: ValueTrait>(&self) -> HashMap<String, Value> {
+        let partition_id = match self.partition_id.as_ref() {
+            Some(partition_id) => {
+                let map: HashMap<String, Value> = HashMap::from_iter(vec![
+                    (
+                        "project_id".into(),
+                        Value::new(ValueType::StringValue(partition_id.project_id.clone())),
+                    ),
+                    (
+                        "namespace_id".into(),
+                        Value::new(ValueType::StringValue(partition_id.namespace_id.clone())),
+                    ),
+                ]);
+                ValueType::MapValue(Value::MapValue::new(map))
+            }
+            None => ValueType::NullValue(0),
+        };
+        let path: Vec<_> = self
+            .path
+            .iter()
+            .map(|element| {
+                Value::new(ValueType::MapValue(Value::MapValue::new(
+                    element.map_value(),
+                )))
+            })
+            .collect();
+        HashMap::from_iter(vec![
+            ("partition_id".into(), Value::new(partition_id)),
+            (
+                "path".into(),
+                Value::new(ValueType::ArrayValue(Value::ArrayValue::new(path))),
+            ),
+        ])
+    }
 }
 
 pub(crate) trait ValueTrait: Sized + Display + 'static {
@@ -100,32 +206,9 @@ pub(crate) trait ValueTrait: Sized + Display + 'static {
     fn map_value(self) -> Option<HashMap<String, Self>> {
         match self.into_value_type().unwrap() {
             ValueType::MapValue(value) => Some(value.get_fields()),
-            ValueType::GeoPointValue(value) => {
-                let map = HashMap::from_iter(vec![
-                    (
-                        "latitude".into(),
-                        Self::new(ValueType::DoubleValue(value.get_latitude())),
-                    ),
-                    (
-                        "longitude".into(),
-                        Self::new(ValueType::DoubleValue(value.get_longitude())),
-                    ),
-                ]);
-                Some(map)
-            }
-            ValueType::TimestampValue(value) => {
-                let map = HashMap::from_iter(vec![
-                    (
-                        "seconds".into(),
-                        Self::new(ValueType::IntegerValue(value.seconds)),
-                    ),
-                    (
-                        "nanos".into(),
-                        Self::new(ValueType::IntegerValue(value.nanos.into())),
-                    ),
-                ]);
-                Some(map)
-            }
+            ValueType::GeoPointValue(value) => Some(value.map_value()),
+            ValueType::TimestampValue(value) => Some(value.map_value()),
+            ValueType::KeyValue(value) => Some(value.map_value()),
             _ => None,
         }
     }
@@ -143,6 +226,7 @@ pub(crate) trait ValueTrait: Sized + Display + 'static {
             ValueTypeRef::GeoPointValue(value) => write!(f, "GeoPoint {:?}", value),
             ValueTypeRef::ArrayValue(value) => write!(f, "Array {:?}", value),
             ValueTypeRef::MapValue(value) => write!(f, "Map {:?}", value),
+            ValueTypeRef::KeyValue(value) => write!(f, "Key {:?}", value),
         }
     }
 }
