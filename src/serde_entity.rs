@@ -1,4 +1,9 @@
-pub mod common;
+mod common;
 pub(crate) mod deserializer;
 pub mod error;
-pub mod value;
+mod value;
+
+pub(crate) use common::{KeyValueSet, TraceKey};
+pub(crate) use value::{
+    ArrayValueTrait, LatLngTrait, MapValueTrait, ValueTrait, ValueType, ValueTypeRef,
+};

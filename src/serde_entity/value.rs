@@ -66,14 +66,6 @@ pub(crate) trait ValueTrait: Sized + Display + 'static {
     fn get_value_type<'s>(&'s self) -> Option<ValueTypeRef<Self>>;
     fn into_value_type(self) -> Option<ValueType<Self>>;
 
-    fn integer(value: i64) -> Self {
-        Self::new(ValueType::IntegerValue(value))
-    }
-
-    fn double(value: f64) -> Self {
-        Self::new(ValueType::DoubleValue(value))
-    }
-
     fn integer_value(&self) -> Option<i64> {
         match self.get_value_type().unwrap() {
             ValueTypeRef::IntegerValue(i) => Some(*i),
@@ -110,15 +102,27 @@ pub(crate) trait ValueTrait: Sized + Display + 'static {
             ValueType::MapValue(value) => Some(value.get_fields()),
             ValueType::GeoPointValue(value) => {
                 let map = HashMap::from_iter(vec![
-                    ("latitude".into(), Self::double(value.get_latitude())),
-                    ("longitude".into(), Self::double(value.get_longitude())),
+                    (
+                        "latitude".into(),
+                        Self::new(ValueType::DoubleValue(value.get_latitude())),
+                    ),
+                    (
+                        "longitude".into(),
+                        Self::new(ValueType::DoubleValue(value.get_longitude())),
+                    ),
                 ]);
                 Some(map)
             }
             ValueType::TimestampValue(value) => {
                 let map = HashMap::from_iter(vec![
-                    ("seconds".into(), Self::integer(value.seconds)),
-                    ("nanos".into(), Self::integer(value.nanos.into())),
+                    (
+                        "seconds".into(),
+                        Self::new(ValueType::IntegerValue(value.seconds)),
+                    ),
+                    (
+                        "nanos".into(),
+                        Self::new(ValueType::IntegerValue(value.nanos.into())),
+                    ),
                 ]);
                 Some(map)
             }

@@ -1,7 +1,6 @@
 pub(crate) use super::{
-    common::{KeyValueSet, TraceKey},
     error::{Error, Result},
-    value::{ArrayValueTrait, ValueTrait, ValueType, ValueTypeRef},
+    ArrayValueTrait, KeyValueSet, TraceKey, ValueTrait, ValueTypeRef,
 };
 use core::panic;
 use de::SeqAccess;
