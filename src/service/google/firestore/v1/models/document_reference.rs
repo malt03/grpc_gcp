@@ -2,7 +2,7 @@ use super::collection_reference::CollectionReference;
 use crate::{
     config::project_id,
     proto::google::firestore::v1::{firestore_client::FirestoreClient, GetDocumentRequest},
-    serde_entity::deserializer::from_fields,
+    serde_properties::deserializer::deserialize,
 };
 use serde::Deserialize;
 
@@ -28,7 +28,7 @@ impl DocumentReference {
         format!("{}/{}", self.parent.path(), self.id)
     }
 
-    pub async fn get<'de, T>(&self) -> Result<T, Box<dyn std::error::Error>>
+    pub async fn get<'de, T>(&self) -> Result<T, super::super::Error>
     where
         T: Deserialize<'de>,
     {
@@ -44,7 +44,7 @@ impl DocumentReference {
             ..Default::default()
         });
         let response = client.get_document(request).await?;
-        let result = from_fields(response.into_inner().fields)?;
+        let result = deserialize(response.into_inner().fields)?;
         Ok(result)
     }
 }

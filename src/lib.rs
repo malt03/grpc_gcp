@@ -2,7 +2,7 @@
 mod service;
 mod config;
 mod proto;
-mod serde_entity;
+mod serde_properties;
 mod util;
 
 pub use service::google::{datastore, firestore, pubsub};

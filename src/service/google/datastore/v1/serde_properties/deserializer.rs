@@ -1,6 +1,6 @@
 use crate::{
     proto::google::datastore::v1::{value::ValueType, ArrayValue, Entity, Value},
-    serde_entity,
+    serde_properties,
 };
 use std::collections::HashMap;
 
@@ -22,7 +22,7 @@ impl std::fmt::Display for Value {
     }
 }
 
-impl serde_entity::ArrayValueTrait<Value> for ArrayValue {
+impl serde_properties::ArrayValueTrait<Value> for ArrayValue {
     fn get_values(self) -> Vec<Value> {
         self.values
     }
@@ -32,7 +32,7 @@ impl serde_entity::ArrayValueTrait<Value> for ArrayValue {
     }
 }
 
-impl serde_entity::MapValueTrait<Value> for Entity {
+impl serde_properties::MapValueTrait<Value> for Entity {
     fn get_fields(self) -> HashMap<String, Value> {
         self.properties
     }
@@ -45,12 +45,12 @@ impl serde_entity::MapValueTrait<Value> for Entity {
     }
 }
 
-impl serde_entity::ValueTrait for Value {
+impl serde_properties::ValueTrait for Value {
     type LatLng = crate::proto::google::r#type::LatLng;
     type ArrayValue = ArrayValue;
     type MapValue = Entity;
 
-    fn from_fields(input: HashMap<String, Self>) -> Self {
+    fn from(input: HashMap<String, Self>) -> Self {
         Value {
             value_type: Some(ValueType::EntityValue(Entity {
                 properties: input,
@@ -60,20 +60,20 @@ impl serde_entity::ValueTrait for Value {
         }
     }
 
-    fn new(value_type: serde_entity::ValueType<Self>) -> Self {
+    fn new(value_type: serde_properties::ValueType<Self>) -> Self {
         let value_type = match value_type {
-            serde_entity::ValueType::NullValue(value) => ValueType::NullValue(value),
-            serde_entity::ValueType::BooleanValue(value) => ValueType::BooleanValue(value),
-            serde_entity::ValueType::IntegerValue(value) => ValueType::IntegerValue(value),
-            serde_entity::ValueType::DoubleValue(value) => ValueType::DoubleValue(value),
-            serde_entity::ValueType::TimestampValue(value) => ValueType::TimestampValue(value),
-            serde_entity::ValueType::StringValue(value) => ValueType::StringValue(value),
-            serde_entity::ValueType::BytesValue(value) => ValueType::BlobValue(value),
-            serde_entity::ValueType::ReferenceValue(_) => common_panic!(),
-            serde_entity::ValueType::GeoPointValue(value) => ValueType::GeoPointValue(value),
-            serde_entity::ValueType::ArrayValue(value) => ValueType::ArrayValue(value),
-            serde_entity::ValueType::MapValue(value) => ValueType::EntityValue(value),
-            serde_entity::ValueType::KeyValue(value) => ValueType::KeyValue(value),
+            serde_properties::ValueType::NullValue(value) => ValueType::NullValue(value),
+            serde_properties::ValueType::BooleanValue(value) => ValueType::BooleanValue(value),
+            serde_properties::ValueType::IntegerValue(value) => ValueType::IntegerValue(value),
+            serde_properties::ValueType::DoubleValue(value) => ValueType::DoubleValue(value),
+            serde_properties::ValueType::TimestampValue(value) => ValueType::TimestampValue(value),
+            serde_properties::ValueType::StringValue(value) => ValueType::StringValue(value),
+            serde_properties::ValueType::BytesValue(value) => ValueType::BlobValue(value),
+            serde_properties::ValueType::ReferenceValue(_) => common_panic!(),
+            serde_properties::ValueType::GeoPointValue(value) => ValueType::GeoPointValue(value),
+            serde_properties::ValueType::ArrayValue(value) => ValueType::ArrayValue(value),
+            serde_properties::ValueType::MapValue(value) => ValueType::EntityValue(value),
+            serde_properties::ValueType::KeyValue(value) => ValueType::KeyValue(value),
         };
         Value {
             value_type: Some(value_type),
@@ -81,35 +81,37 @@ impl serde_entity::ValueTrait for Value {
         }
     }
 
-    fn into_value_type(self) -> Option<serde_entity::ValueType<Self>> {
+    fn into_value_type(self) -> Option<serde_properties::ValueType<Self>> {
         self.value_type.map(|value_type| match value_type {
-            ValueType::NullValue(value) => serde_entity::ValueType::NullValue(value),
-            ValueType::BooleanValue(value) => serde_entity::ValueType::BooleanValue(value),
-            ValueType::IntegerValue(value) => serde_entity::ValueType::IntegerValue(value),
-            ValueType::DoubleValue(value) => serde_entity::ValueType::DoubleValue(value),
-            ValueType::TimestampValue(value) => serde_entity::ValueType::TimestampValue(value),
-            ValueType::StringValue(value) => serde_entity::ValueType::StringValue(value),
-            ValueType::BlobValue(value) => serde_entity::ValueType::BytesValue(value),
-            ValueType::KeyValue(value) => serde_entity::ValueType::KeyValue(value),
-            ValueType::GeoPointValue(value) => serde_entity::ValueType::GeoPointValue(value),
-            ValueType::ArrayValue(value) => serde_entity::ValueType::ArrayValue(value),
-            ValueType::EntityValue(value) => serde_entity::ValueType::MapValue(value),
+            ValueType::NullValue(value) => serde_properties::ValueType::NullValue(value),
+            ValueType::BooleanValue(value) => serde_properties::ValueType::BooleanValue(value),
+            ValueType::IntegerValue(value) => serde_properties::ValueType::IntegerValue(value),
+            ValueType::DoubleValue(value) => serde_properties::ValueType::DoubleValue(value),
+            ValueType::TimestampValue(value) => serde_properties::ValueType::TimestampValue(value),
+            ValueType::StringValue(value) => serde_properties::ValueType::StringValue(value),
+            ValueType::BlobValue(value) => serde_properties::ValueType::BytesValue(value),
+            ValueType::KeyValue(value) => serde_properties::ValueType::KeyValue(value),
+            ValueType::GeoPointValue(value) => serde_properties::ValueType::GeoPointValue(value),
+            ValueType::ArrayValue(value) => serde_properties::ValueType::ArrayValue(value),
+            ValueType::EntityValue(value) => serde_properties::ValueType::MapValue(value),
         })
     }
 
-    fn get_value_type<'s>(&'s self) -> Option<serde_entity::ValueTypeRef<Self>> {
+    fn get_value_type<'s>(&'s self) -> Option<serde_properties::ValueTypeRef<Self>> {
         self.value_type.as_ref().map(|value_type| match value_type {
-            ValueType::NullValue(value) => serde_entity::ValueTypeRef::NullValue(value),
-            ValueType::BooleanValue(value) => serde_entity::ValueTypeRef::BooleanValue(value),
-            ValueType::IntegerValue(value) => serde_entity::ValueTypeRef::IntegerValue(value),
-            ValueType::DoubleValue(value) => serde_entity::ValueTypeRef::DoubleValue(value),
-            ValueType::TimestampValue(value) => serde_entity::ValueTypeRef::TimestampValue(value),
-            ValueType::StringValue(value) => serde_entity::ValueTypeRef::StringValue(value),
-            ValueType::BlobValue(value) => serde_entity::ValueTypeRef::BytesValue(value),
-            ValueType::KeyValue(value) => serde_entity::ValueTypeRef::KeyValue(value),
-            ValueType::GeoPointValue(value) => serde_entity::ValueTypeRef::GeoPointValue(value),
-            ValueType::ArrayValue(value) => serde_entity::ValueTypeRef::ArrayValue(value),
-            ValueType::EntityValue(value) => serde_entity::ValueTypeRef::MapValue(value),
+            ValueType::NullValue(value) => serde_properties::ValueTypeRef::NullValue(value),
+            ValueType::BooleanValue(value) => serde_properties::ValueTypeRef::BooleanValue(value),
+            ValueType::IntegerValue(value) => serde_properties::ValueTypeRef::IntegerValue(value),
+            ValueType::DoubleValue(value) => serde_properties::ValueTypeRef::DoubleValue(value),
+            ValueType::TimestampValue(value) => {
+                serde_properties::ValueTypeRef::TimestampValue(value)
+            }
+            ValueType::StringValue(value) => serde_properties::ValueTypeRef::StringValue(value),
+            ValueType::BlobValue(value) => serde_properties::ValueTypeRef::BytesValue(value),
+            ValueType::KeyValue(value) => serde_properties::ValueTypeRef::KeyValue(value),
+            ValueType::GeoPointValue(value) => serde_properties::ValueTypeRef::GeoPointValue(value),
+            ValueType::ArrayValue(value) => serde_properties::ValueTypeRef::ArrayValue(value),
+            ValueType::EntityValue(value) => serde_properties::ValueTypeRef::MapValue(value),
         })
     }
 }
@@ -120,11 +122,10 @@ impl serde_entity::ValueTrait for Value {
 mod tests {
     use crate::{
         proto::google::datastore::v1::{value::ValueType, ArrayValue, Entity, Value},
-        serde_entity::{self, deserializer::Error},
+        serde_properties::{deserializer::deserialize, deserializer::Error, TraceKey},
     };
     use prost_types::Timestamp;
     use serde::Deserialize;
-    use serde_entity::{deserializer::from_fields, TraceKey};
     use std::{collections::HashMap, iter::FromIterator};
 
     impl Value {
@@ -315,7 +316,7 @@ mod tests {
             ("enum_struct".into(), Value::map(enum_struct)),
         ]);
 
-        let test: Test = from_fields(fields).unwrap();
+        let test: Test = deserialize(fields).unwrap();
         let expected = Test {
             s: "hoge".into(),
             u_8: 8,
@@ -372,7 +373,7 @@ mod tests {
             ("value".into(), Value::integer(1)),
             ("b".into(), Value::integer(2)),
         ]);
-        assert_eq!(ValueHolder { value: 1 }, from_fields(fields).unwrap());
+        assert_eq!(ValueHolder { value: 1 }, deserialize(fields).unwrap());
     }
 
     #[test]
@@ -393,7 +394,7 @@ mod tests {
         let c = HashMap::from_iter(vec![("value".into(), Value::string("a"))]);
         let b = HashMap::from_iter(vec![("c".into(), Value::map(c))]);
         let a: HashMap<String, Value> = HashMap::from_iter(vec![("b".into(), Value::map(b))]);
-        let error = from_fields::<A, Value>(a).unwrap_err();
+        let error = deserialize::<A, Value>(a).unwrap_err();
         assert_eq!(
             "A integer value was expected for /b/c/value, but it was String \"a\"",
             error.to_string()
@@ -414,7 +415,7 @@ mod tests {
         let v = vec![Value::integer(1), Value::string("hoge")];
         let b = HashMap::from_iter(vec![("v".into(), Value::array(v))]);
         let a: HashMap<String, Value> = HashMap::from_iter(vec![("b".into(), Value::map(b))]);
-        let error = from_fields::<A, Value>(a).unwrap_err();
+        let error = deserialize::<A, Value>(a).unwrap_err();
         assert_eq!(
             "A integer value was expected for /b/v[], but it was String \"hoge\"",
             error.to_string()
@@ -426,52 +427,54 @@ mod tests {
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::string("hoge"))]);
         let key = TraceKey::Map("value".into(), Box::new(TraceKey::Root));
+        let error_value = "String \"hoge\"";
         assert_eq!(
-            Error::ExpectedMap(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<HashMap<String, i64>>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedMap(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<HashMap<String, i64>>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedBoolean(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<bool>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedBoolean(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<bool>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedInteger(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<u64>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedInteger(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<u64>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedInteger(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<i64>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedInteger(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<i64>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedDouble(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<f32>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedDouble(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<f32>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedDouble(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<f64>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedDouble(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<f64>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedNull(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<()>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedNull(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<()>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedArray(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<Vec<i64>>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedArray(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<Vec<i64>>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedArray(key.clone(), Value::string("hoge")),
-            from_fields::<ValueHolder<Vec<i64>>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedArray(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<Vec<i64>>, Value>(fields.clone()).unwrap_err()
         );
 
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(0))]);
+        let error_value = "Integer 0";
         assert_eq!(
-            Error::ExpectedString(key.clone(), Value::integer(0)),
-            from_fields::<ValueHolder<String>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedString(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<String>, Value>(fields.clone()).unwrap_err()
         );
         assert_eq!(
-            Error::ExpectedEnum(key.clone(), Value::integer(0)),
-            from_fields::<ValueHolder<E>, Value>(fields.clone()).unwrap_err()
+            Error::ExpectedEnum(key.clone(), error_value.into()),
+            deserialize::<ValueHolder<E>, Value>(fields.clone()).unwrap_err()
         );
     }
 
@@ -481,20 +484,23 @@ mod tests {
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(-1))]);
         assert_eq!(
-            Error::CouldNotConvertNumber(key.clone(), Value::integer(-1)),
-            from_fields::<ValueHolder<u64>, Value>(fields).unwrap_err()
+            Error::CouldNotConvertNumber(key.clone(), "Integer -1".into()),
+            deserialize::<ValueHolder<u64>, Value>(fields).unwrap_err()
         );
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::integer(256))]);
         assert_eq!(
-            Error::CouldNotConvertNumber(key.clone(), Value::integer(256)),
-            from_fields::<ValueHolder<u8>, Value>(fields).unwrap_err()
+            Error::CouldNotConvertNumber(key.clone(), "Integer 256".into()),
+            deserialize::<ValueHolder<u8>, Value>(fields).unwrap_err()
         );
         let fields: HashMap<String, Value> =
             HashMap::from_iter(vec![("value".into(), Value::double(-3.40282348E+38))]);
         assert_eq!(
-            Error::CouldNotConvertNumber(key.clone(), Value::double(-3.40282348E+38)),
-            from_fields::<ValueHolder<f32>, Value>(fields).unwrap_err()
+            Error::CouldNotConvertNumber(
+                key.clone(),
+                "Double -340282348000000000000000000000000000000.0".into()
+            ),
+            deserialize::<ValueHolder<f32>, Value>(fields).unwrap_err()
         );
     }
 
@@ -506,7 +512,7 @@ mod tests {
         let fields: HashMap<String, Value> = HashMap::from_iter(vec![("value".into(), array)]);
         assert_eq!(
             Error::ExpectedArrayEnd(key.clone()),
-            from_fields::<ValueHolder<(i32, i32)>, Value>(fields).unwrap_err()
+            deserialize::<ValueHolder<(i32, i32)>, Value>(fields).unwrap_err()
         );
     }
 }

@@ -166,7 +166,7 @@ pub(crate) trait ValueTrait: Sized + Display + 'static {
     type ArrayValue: ArrayValueTrait<Self> + Debug;
     type MapValue: MapValueTrait<Self> + Debug;
 
-    fn from_fields(input: HashMap<String, Self>) -> Self;
+    fn from(input: HashMap<String, Self>) -> Self;
     fn new(value_type: ValueType<Self>) -> Self;
 
     fn get_value_type<'s>(&'s self) -> Option<ValueTypeRef<Self>>;

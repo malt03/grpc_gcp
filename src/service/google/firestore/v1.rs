@@ -1,5 +1,8 @@
+pub mod error;
 mod models;
-mod serde;
+mod serde_fields;
+
+pub use error::Error;
 use models::CollectionReference;
 
 use crate::proto::google::firestore::v1::firestore_client::FirestoreClient;

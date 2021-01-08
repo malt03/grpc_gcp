@@ -16,7 +16,7 @@ struct Deserializer<Value: ValueTrait> {
 }
 
 impl<Value: ValueTrait> Deserializer<Value> {
-    fn from_fields(input: HashMap<String, Value>) -> Self {
+    fn from(input: HashMap<String, Value>) -> Self {
         Deserializer {
             processing_bundle: DeserializerBundle::root(input),
             bundle_stack: Vec::new(),
@@ -60,16 +60,16 @@ impl<Value: ValueTrait> DeserializerBundle<Value> {
         DeserializerBundle::Map(MapDeserializerBundle::<Value> {
             key: TraceKey::Root,
             entries: (Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>).peekable(),
-            poped_value: Some(KeyValueSet(TraceKey::Root, Value::from_fields(input))),
+            poped_value: Some(KeyValueSet(TraceKey::Root, Value::from(input))),
         })
     }
 }
 
-pub(crate) fn from_fields<'a, T, Value: ValueTrait>(s: HashMap<String, Value>) -> Result<T, Value>
+pub(crate) fn deserialize<'a, T, Value: ValueTrait>(s: HashMap<String, Value>) -> Result<T>
 where
     T: Deserialize<'a>,
 {
-    let mut deserializer = Deserializer::from_fields(s);
+    let mut deserializer = Deserializer::from(s);
     Ok(T::deserialize(&mut deserializer)?)
 }
 
@@ -106,10 +106,10 @@ impl<'a, Value: ValueTrait> PeekedBundleElement<'a, Value> {
 }
 
 impl<Value: ValueTrait> Deserializer<Value> {
-    fn pop(&mut self) -> Result<BundleElement<Value>, Value> {
+    fn pop(&mut self) -> Result<BundleElement<Value>> {
         fn pop_bundle_stack<Value: ValueTrait>(
             de: &mut Deserializer<Value>,
-        ) -> Result<BundleElement<Value>, Value> {
+        ) -> Result<BundleElement<Value>> {
             match de.bundle_stack.pop() {
                 None => Err(Error::Eof),
                 Some(bundle) => {
@@ -147,10 +147,10 @@ impl<Value: ValueTrait> Deserializer<Value> {
         }
     }
 
-    fn peek(&mut self) -> Result<PeekedBundleElement<Value>, Value> {
+    fn peek(&mut self) -> Result<PeekedBundleElement<Value>> {
         fn peek_bundle_stack<Value: ValueTrait>(
             bundle_stack: &Vec<DeserializerBundle<Value>>,
-        ) -> Result<PeekedBundleElement<Value>, Value> {
+        ) -> Result<PeekedBundleElement<Value>> {
             match bundle_stack.last() {
                 None => Err(Error::Eof),
                 Some(_) => Ok(PeekedBundleElement::EndOfBundle),
@@ -171,30 +171,30 @@ impl<Value: ValueTrait> Deserializer<Value> {
         }
     }
 
-    fn get_bool(&mut self) -> Result<bool, Value> {
+    fn get_bool(&mut self) -> Result<bool> {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         if let ValueTypeRef::BooleanValue(value) = value.get_value_type().unwrap() {
             Ok(*value)
         } else {
-            Err(Error::ExpectedBoolean(key, value))
+            Err(Error::ExpectedBoolean(key, value.to_string()))
         }
     }
 
-    fn get_string(&mut self) -> Result<String, Value> {
+    fn get_string(&mut self) -> Result<String> {
         match self.pop()? {
             BundleElement::Key(key) => Ok(key.clone()),
             BundleElement::Value(KeyValueSet(key, value)) => {
                 match value.get_value_type().unwrap() {
                     ValueTypeRef::StringValue(value) => Ok(value.clone()),
                     ValueTypeRef::ReferenceValue(value) => Ok(value.clone()),
-                    _ => Err(Error::ExpectedString(key, value)),
+                    _ => Err(Error::ExpectedString(key, value.to_string())),
                 }
             }
             BundleElement::EndOfBundle => common_panic!(),
         }
     }
 
-    fn get_unsigned<T>(&mut self) -> Result<T, Value>
+    fn get_unsigned<T>(&mut self) -> Result<T>
     where
         T: TryFrom<u64>,
     {
@@ -203,145 +203,146 @@ impl<Value: ValueTrait> Deserializer<Value> {
             Some(i) => {
                 let min = u64::min_value() as i64;
                 if i >= min {
-                    T::try_from(i as u64).or(Err(Error::CouldNotConvertNumber(key, value)))
+                    T::try_from(i as u64)
+                        .or(Err(Error::CouldNotConvertNumber(key, value.to_string())))
                 } else {
-                    Err(Error::CouldNotConvertNumber(key, value))
+                    Err(Error::CouldNotConvertNumber(key, value.to_string()))
                 }
             }
-            None => Err(Error::ExpectedInteger(key.clone(), value)),
+            None => Err(Error::ExpectedInteger(key.clone(), value.to_string())),
         }
     }
 
-    fn get_signed<T>(&mut self) -> Result<T, Value>
+    fn get_signed<T>(&mut self) -> Result<T>
     where
         T: TryFrom<i64>,
     {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         match value.integer_value() {
-            Some(i) => T::try_from(i).or(Err(Error::CouldNotConvertNumber(key, value))),
-            None => Err(Error::ExpectedInteger(key.clone(), value)),
+            Some(i) => T::try_from(i).or(Err(Error::CouldNotConvertNumber(key, value.to_string()))),
+            None => Err(Error::ExpectedInteger(key.clone(), value.to_string())),
         }
     }
 
-    fn get_f64(&mut self) -> Result<f64, Value> {
+    fn get_f64(&mut self) -> Result<f64> {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         if let ValueTypeRef::DoubleValue(value) = value.get_value_type().unwrap() {
             Ok(*value)
         } else {
-            Err(Error::ExpectedDouble(key, value))
+            Err(Error::ExpectedDouble(key, value.to_string()))
         }
     }
 
-    fn get_f32(&mut self) -> Result<f32, Value> {
+    fn get_f32(&mut self) -> Result<f32> {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         if let ValueTypeRef::DoubleValue(f) = value.get_value_type().unwrap() {
             if *f > f32::MIN as f64 && *f < f32::MAX as f64 {
                 Ok(*f as f32)
             } else {
-                Err(Error::CouldNotConvertNumber(key, value))
+                Err(Error::CouldNotConvertNumber(key, value.to_string()))
             }
         } else {
-            Err(Error::ExpectedDouble(key, value))
+            Err(Error::ExpectedDouble(key, value.to_string()))
         }
     }
 
-    fn get_bytes(&mut self) -> Result<Vec<u8>, Value> {
+    fn get_bytes(&mut self) -> Result<Vec<u8>> {
         let KeyValueSet(key, value) = self.pop()?.key_value_set();
         match value.get_value_type().as_ref().unwrap() {
             ValueTypeRef::BytesValue(_) => Ok(value.byte_value().unwrap()),
-            _ => Err(Error::ExpectedBytes(key, value)),
+            _ => Err(Error::ExpectedBytes(key, value.to_string())),
         }
     }
 }
 
 impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<Value> {
-    type Error = Error<Value>;
+    type Error = Error;
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Value>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         unimplemented!()
     }
 
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_bool(self.get_bool()?)
     }
 
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_i8(self.get_signed()?)
     }
 
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_i16(self.get_signed()?)
     }
 
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_i32(self.get_signed()?)
     }
 
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_i64(self.get_signed()?)
     }
 
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_u8(self.get_unsigned()?)
     }
 
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_u16(self.get_unsigned()?)
     }
 
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_u32(self.get_unsigned()?)
     }
 
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_u64(self.get_unsigned()?)
     }
 
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_f32(self.get_f32()?)
     }
 
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_f64(self.get_f64()?)
     }
 
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Value>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -350,35 +351,35 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         )
     }
 
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_str(&self.get_string()?)
     }
 
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_bytes(&self.get_bytes()?)
     }
 
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         self.deserialize_bytes(visitor)
     }
 
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -393,7 +394,7 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         visitor.visit_none()
     }
 
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -401,29 +402,25 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         if let ValueTypeRef::NullValue(_) = value.get_value_type().unwrap() {
             visitor.visit_unit()
         } else {
-            Err(Error::ExpectedNull(key, value))
+            Err(Error::ExpectedNull(key, value.to_string()))
         }
     }
 
-    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         self.deserialize_unit(visitor)
     }
 
-    fn deserialize_newtype_struct<V>(
-        self,
-        _name: &'static str,
-        visitor: V,
-    ) -> Result<V::Value, Value>
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         visitor.visit_newtype_struct(self)
     }
 
-    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -443,11 +440,11 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
                     Err(Error::ExpectedArrayEnd(key))
                 }
             }
-            _ => Err(Error::ExpectedArray(key, value)),
+            _ => Err(Error::ExpectedArray(key, value.to_string())),
         }
     }
 
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -459,14 +456,14 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         _name: &'static str,
         _len: usize,
         visitor: V,
-    ) -> Result<V::Value, Value>
+    ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         self.deserialize_seq(visitor)
     }
 
-    fn deserialize_map<V>(mut self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_map<V>(mut self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -483,7 +480,7 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
                 common_panic!()
             }
         } else {
-            Err(Error::ExpectedMap(key.clone(), value))
+            Err(Error::ExpectedMap(key.clone(), value.to_string()))
         }
     }
 
@@ -492,7 +489,7 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         _name: &'static str,
         _fields: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, Value>
+    ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -504,7 +501,7 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
         _name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, Value>
+    ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -525,19 +522,19 @@ impl<'de, 'a, Value: ValueTrait> de::Deserializer<'de> for &'a mut Deserializer<
             }
             _ => {
                 let KeyValueSet(key, value) = self.pop()?.key_value_set();
-                Err(Error::ExpectedEnum(key, value))
+                Err(Error::ExpectedEnum(key, value.to_string()))
             }
         }
     }
 
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Value>
+    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
@@ -557,9 +554,9 @@ impl<'a, Value: ValueTrait> Entries<'a, Value> {
 }
 
 impl<'a, 'de, Value: ValueTrait> SeqAccess<'de> for Entries<'a, Value> {
-    type Error = Error<Value>;
+    type Error = Error;
 
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Value>
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
     where
         T: DeserializeSeed<'de>,
     {
@@ -572,9 +569,9 @@ impl<'a, 'de, Value: ValueTrait> SeqAccess<'de> for Entries<'a, Value> {
 }
 
 impl<'a, 'de, Value: ValueTrait> MapAccess<'de> for Entries<'a, Value> {
-    type Error = Error<Value>;
+    type Error = Error;
 
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Value>
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
     where
         K: DeserializeSeed<'de>,
     {
@@ -585,7 +582,7 @@ impl<'a, 'de, Value: ValueTrait> MapAccess<'de> for Entries<'a, Value> {
         }
     }
 
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Value>
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
     where
         V: DeserializeSeed<'de>,
     {
@@ -604,10 +601,10 @@ impl<'a, Value: ValueTrait> Enum<'a, Value> {
 }
 
 impl<'de, 'a, Value: ValueTrait> EnumAccess<'de> for Enum<'a, Value> {
-    type Error = Error<Value>;
+    type Error = Error;
     type Variant = Self;
 
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Value>
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant)>
     where
         V: DeserializeSeed<'de>,
     {
@@ -616,31 +613,27 @@ impl<'de, 'a, Value: ValueTrait> EnumAccess<'de> for Enum<'a, Value> {
 }
 
 impl<'de, 'a, Value: ValueTrait> VariantAccess<'de> for Enum<'a, Value> {
-    type Error = Error<Value>;
+    type Error = Error;
 
-    fn unit_variant(self) -> Result<(), Value> {
+    fn unit_variant(self) -> Result<()> {
         Ok(())
     }
 
-    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Value>
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
     where
         T: DeserializeSeed<'de>,
     {
         seed.deserialize(self.de)
     }
 
-    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Value>
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         de::Deserializer::deserialize_seq(self.de, visitor)
     }
 
-    fn struct_variant<V>(
-        self,
-        _fields: &'static [&'static str],
-        visitor: V,
-    ) -> Result<V::Value, Value>
+    fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {

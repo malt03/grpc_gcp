@@ -2,7 +2,7 @@ use super::value::ValueTrait;
 use std::fmt::Display;
 
 #[derive(Clone, PartialEq)]
-pub(crate) enum TraceKey {
+pub enum TraceKey {
     Root,
     Map(String, Box<TraceKey>),
     Array(Box<TraceKey>),

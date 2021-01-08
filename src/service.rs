@@ -1,3 +1,5 @@
+use gcp_auth::GCPAuthError;
+
 #[macro_use]
 mod macros;
 
@@ -16,9 +18,7 @@ pub(crate) async fn create_channel(
     Ok(channel)
 }
 
-pub(crate) async fn get_token(
-    scopes: &[&str],
-) -> Result<gcp_auth::Token, Box<dyn std::error::Error>> {
+pub(crate) async fn get_token(scopes: &[&str]) -> Result<gcp_auth::Token, GCPAuthError> {
     let authentication_manager = auth::AUTHENTICATION_MANAGER.get().await?;
     let token = authentication_manager.get_token(scopes).await?;
     Ok(token)

@@ -1,6 +1,8 @@
+pub mod error;
 mod models;
 
 use crate::config::project_id;
+use error::Error;
 use models::Message;
 use tonic::{Request, Response};
 

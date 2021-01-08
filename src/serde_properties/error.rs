@@ -2,42 +2,42 @@ use fmt::Debug;
 use serde::{de, ser};
 use std;
 use std::fmt::{self, Display};
-pub(crate) type Result<T, Value> = std::result::Result<T, Error<Value>>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 use super::common::TraceKey;
 
 #[derive(Clone, PartialEq)]
-pub(crate) enum Error<Value: Display> {
+pub enum Error {
     Message(String),
 
     Eof,
 
-    ExpectedBoolean(TraceKey, Value),
-    ExpectedInteger(TraceKey, Value),
-    ExpectedDouble(TraceKey, Value),
-    ExpectedString(TraceKey, Value),
-    ExpectedBytes(TraceKey, Value),
-    ExpectedNull(TraceKey, Value),
-    ExpectedArray(TraceKey, Value),
-    ExpectedMap(TraceKey, Value),
-    ExpectedEnum(TraceKey, Value),
-    CouldNotConvertNumber(TraceKey, Value),
+    ExpectedBoolean(TraceKey, String),
+    ExpectedInteger(TraceKey, String),
+    ExpectedDouble(TraceKey, String),
+    ExpectedString(TraceKey, String),
+    ExpectedBytes(TraceKey, String),
+    ExpectedNull(TraceKey, String),
+    ExpectedArray(TraceKey, String),
+    ExpectedMap(TraceKey, String),
+    ExpectedEnum(TraceKey, String),
+    CouldNotConvertNumber(TraceKey, String),
     ExpectedArrayEnd(TraceKey),
 }
 
-impl<Value: Display> ser::Error for Error<Value> {
+impl ser::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         Error::Message(msg.to_string())
     }
 }
 
-impl<Value: Display> de::Error for Error<Value> {
+impl de::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         Error::Message(msg.to_string())
     }
 }
 
-impl<Value: Display> Error<Value> {
+impl Error {
     fn to_string(&self) -> String {
         match self {
             Error::Message(msg) => msg.to_string(),
@@ -89,16 +89,16 @@ impl<Value: Display> Error<Value> {
     }
 }
 
-impl<Value: Display> Debug for Error<Value> {
+impl Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(&self.to_string())
     }
 }
 
-impl<Value: Display> Display for Error<Value> {
+impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(&self.to_string())
     }
 }
 
-impl<Value: Display> std::error::Error for Error<Value> {}
+impl std::error::Error for Error {}
