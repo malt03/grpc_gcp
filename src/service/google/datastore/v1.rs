@@ -5,10 +5,14 @@ use crate::{
         run_query_request::QueryType, Key, LookupRequest, Query, RunQueryRequest,
     },
 };
+use serde::Deserialize;
 
 const DOMAIN: &str = "datastore.googleapis.com";
 const SCOPE: &str = "https://www.googleapis.com/auth/datastore";
 define_client!(DatastoreClient);
+
+#[derive(Deserialize, Debug)]
+struct T {}
 
 pub async fn lookup() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = DatastoreClient::get().await?;
@@ -25,10 +29,11 @@ pub async fn lookup() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     });
     let response = client.lookup(request).await?;
-    for found in response.into_inner().found {
-        let properties = found.entity.unwrap().properties;
-        println!("{:?}", properties);
-    }
+    // for found in response.into_inner().found {
+    //     let properties = found.entity.unwrap().properties;
+    //     let t: T = crate::serde_entity::deserializer::from_fields(properties).unwrap();
+    //     println!("{:?}", properties);
+    // }
     Ok(())
 }
 
