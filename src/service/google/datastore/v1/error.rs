@@ -7,6 +7,7 @@ pub enum Error {
     Transport(tonic::transport::Error),
     Status(tonic::Status),
     Deserialize(serde_properties::deserializer::Error),
+    NotFound(super::Key),
 }
 
 impl std::fmt::Display for Error {
@@ -16,6 +17,7 @@ impl std::fmt::Display for Error {
             Error::Transport(e) => e.fmt(f),
             Error::Status(e) => e.fmt(f),
             Error::Deserialize(e) => e.fmt(f),
+            Error::NotFound(key) => write!(f, "Not Found: {:?}", key),
         }
     }
 }
