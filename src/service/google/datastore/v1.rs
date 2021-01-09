@@ -26,7 +26,7 @@ impl Datastore {
         }
     }
 
-    pub fn name(
+    pub fn name_key(
         &self,
         kind: impl Into<String>,
         name: impl Into<String>,
@@ -39,7 +39,7 @@ impl Datastore {
         })
     }
 
-    pub fn id(&self, kind: impl Into<String>, id: i64, parent: Option<Key>) -> Key {
+    pub fn id_key(&self, kind: impl Into<String>, id: i64, parent: Option<Key>) -> Key {
         let path = path(kind, IdType::Id(id), parent);
         Key(datastore::Key {
             partition_id: Some(partition_id(self.namespace_id.clone())),
@@ -47,7 +47,7 @@ impl Datastore {
         })
     }
 
-    pub async fn get<'de, T>(key: Key) -> Result<T, Error>
+    pub async fn get<'de, T>(&self, key: Key) -> Result<T, Error>
     where
         T: serde::Deserialize<'de>,
     {
